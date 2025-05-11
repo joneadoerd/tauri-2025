@@ -13,7 +13,7 @@ function App() {
   const [sensors, setSensors] = useState<string[]>([]);
   const [sensorData, setSensorData] = useState<Record<string, SensorData>>({});
   const [command, setCommand] = useState('');
-
+  const [selectedSensor, setSelectedSensor] = useState('');
   useEffect(() => {
     // Load initial sensors
     invoke<string[]>('get_active_sensors').then(setSensors);
@@ -48,32 +48,38 @@ function App() {
     };
   }, []);
 
-  const sendCommand = (sensorId: string) => {
-    invoke('send_command_to_sensor', { sensorId, command })
-      .catch(console.error);
+
+  
+  const sendCommand = async () => {
+    if (!selectedSensor || !command.trim()) return;
+    
+    try {
+      await invoke('send_command_to_sensor', { 
+        sensorId: selectedSensor, 
+        command: command.trim() 
+      });
+      setCommand('');
+      // Show success notification
+    } catch (error) {
+      console.error('Failed to send command:', error);
+      // Show error notification
+    }
   };
 
   return (
-    <div className="container">
+    <><div className="container">
       <h1>Sensor Dashboard</h1>
-      
+
       <div className="sensors-list">
         <h2>Connected Sensors ({sensors.length})</h2>
         <ul>
           {sensors.map(sensor => (
             <li key={sensor}>
-              {sensor} 
+              {sensor}
               {sensorData[sensor] && (
                 <span> - Value: {sensorData[sensor].value.toFixed(2)}</span>
               )}
-              <div>
-                <input 
-                  type="text" 
-                  placeholder="Command" 
-                  onChange={(e) => setCommand(e.target.value)}
-                />
-                <button onClick={() => sendCommand(sensor)}>Send</button>
-              </div>
+            
             </li>
           ))}
         </ul>
@@ -90,7 +96,24 @@ function App() {
         ))}
       </div>
     </div>
+      // In your render method:
+      <select
+        value={selectedSensor}
+        onChange={(e) => setSelectedSensor(e.target.value)}
+      >
+        <option value="">Select a sensor</option>
+        {sensors.map(sensor => (
+          <option key={sensor} value={sensor}>{sensor}</option>
+        ))}
+      </select><input
+        type="text"
+        value={command}
+        onChange={(e) => setCommand(e.target.value)}
+        placeholder="Enter command" /><button onClick={sendCommand} disabled={!selectedSensor || !command.trim()}>
+        Send Command
+      </button></>
   );
+  
 }
 
 export default App;
