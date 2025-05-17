@@ -1,119 +1,100 @@
-'use client';
-import { useEffect, useState } from 'react';
+"use client";
+
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
-interface SensorData {
-  sensor_id: string;
-  value: number;
-  timestamp: number;
-}
+export default function Setup() {
+  const [subs, setSubs] = useState<{ id: string; topic: string }[]>([]);
+  const [messages, setMessages] = useState<Record<string, string[]>>({});
+  const listenerMap = useRef<Record<string, UnlistenFn>>({}); // 🔁 prevent duplicate listen
 
-function App() {
-  const [sensors, setSensors] = useState<string[]>([]);
-  const [sensorData, setSensorData] = useState<Record<string, SensorData>>({});
-  const [command, setCommand] = useState('');
-  const [selectedSensor, setSelectedSensor] = useState('');
+  const loadSubs = async () => {
+    const list = (await invoke('list_subs')) as [string, string][];
+    setSubs(list.map(([id, topic]) => ({ id, topic })));
+
+    // Attach listeners only if not already attached
+    await Promise.all(
+      list.map(async ([id]) => {
+        if (!listenerMap.current[id]) {
+          const unlisten = await listen(`zmq-message-${id}`, (event) => {
+            setMessages((prev) => ({
+              ...prev,
+              [id]: [...(prev[id] || []), event.payload as string],
+            }));
+          });
+
+          listenerMap.current[id] = unlisten;
+        }
+      })
+    );
+  };
+
   useEffect(() => {
-    // Load initial sensors
-    invoke<string[]>('get_active_sensors').then(setSensors);
-
-    // Listen for new sensor connections
-    const unlistenConnect = listen<string>('sensor-connected', (event) => {
-      setSensors(prev => [...prev, event.payload]);
-    });
-
-    // Listen for sensor disconnections
-    const unlistenDisconnect = listen<string>('sensor-disconnected', (event) => {
-      setSensors(prev => prev.filter(id => id !== event.payload));
-      setSensorData(prev => {
-        const newData = {...prev};
-        delete newData[event.payload];
-        return newData;
-      });
-    });
-
-    // Listen for sensor data
-    const unlistenData = listen<SensorData>('sensor-data', (event) => {
-      setSensorData(prev => ({
-        ...prev,
-        [event.payload.sensor_id]: event.payload
-      }));
-    });
+    invoke('init_zmq');
+    loadSubs();
 
     return () => {
-      unlistenConnect.then(f => f());
-      unlistenDisconnect.then(f => f());
-      unlistenData.then(f => f());
+      // Clean up listeners if needed on unmount
+      Object.values(listenerMap.current).forEach((unlisten) => unlisten());
+      listenerMap.current = {};
     };
   }, []);
 
-
-  
-  const sendCommand = async () => {
-    if (!selectedSensor || !command.trim()) return;
-    
-    try {
-      await invoke('send_command_to_sensor', { 
-        sensorId: selectedSensor, 
-        command: command.trim() 
-      });
-      setCommand('');
-      // Show success notification
-    } catch (error) {
-      console.error('Failed to send command:', error);
-      // Show error notification
+  const handleAdd = async () => {
+    const ok = await invoke('add_sub', { id: newId, topic: newTopic });
+    if (ok) {
+      await loadSubs();
+      setNewId('');
+      setNewTopic('');
     }
   };
 
+  const handleRemove = async (id: string) => {
+    await invoke('remove_sub', { id });
+
+    if (listenerMap.current[id]) {
+      await listenerMap.current[id](); // unlisten
+      delete listenerMap.current[id];
+    }
+
+    await loadSubs();
+  };
+
+  const [newId, setNewId] = useState('');
+  const [newTopic, setNewTopic] = useState('');
+
   return (
-    <><div className="container">
-      <h1>Sensor Dashboard</h1>
-
-      <div className="sensors-list">
-        <h2>Connected Sensors ({sensors.length})</h2>
-        <ul>
-          {sensors.map(sensor => (
-            <li key={sensor}>
-              {sensor}
-              {sensorData[sensor] && (
-                <span> - Value: {sensorData[sensor].value.toFixed(2)}</span>
-              )}
-            
-            </li>
-          ))}
-        </ul>
+    <div style={{ padding: 20 }}>
+      <h1>Setup Subscriptions</h1>
+      <div>
+        <input
+          placeholder="ID"
+          value={newId}
+          onChange={(e) => setNewId(e.target.value)}
+        />
+        <input
+          placeholder="Topic"
+          value={newTopic}
+          onChange={(e) => setNewTopic(e.target.value)}
+        />
+        <button onClick={handleAdd}>Add Subscription</button>
       </div>
 
-      <div className="data-visualization">
-        <h2>Sensor Data</h2>
-        {Object.entries(sensorData).map(([id, data]) => (
-          <div key={id} className="sensor-data">
-            <h3>{id}</h3>
-            <p>Value: {data.value}</p>
-            <p>Timestamp: {new Date(data.timestamp).toLocaleString()}</p>
-          </div>
-        ))}
-      </div>
+      <h2>Current Subs</h2>
+      {subs.map((sub) => (
+        <div key={sub.id} style={{ marginBottom: 20, padding: 10, border: '1px solid gray' }}>
+          <strong>ID:</strong> {sub.id} <br />
+          <strong>Topic:</strong> {sub.topic}
+          <button style={{ marginLeft: 10 }} onClick={() => handleRemove(sub.id)}>Remove</button>
+
+          <ul>
+            {(messages[sub.id] || []).map((msg, idx) => (
+              <li key={idx}>{msg}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
-      // In your render method:
-      <select
-        value={selectedSensor}
-        onChange={(e) => setSelectedSensor(e.target.value)}
-      >
-        <option value="">Select a sensor</option>
-        {sensors.map(sensor => (
-          <option key={sensor} value={sensor}>{sensor}</option>
-        ))}
-      </select><input
-        type="text"
-        value={command}
-        onChange={(e) => setCommand(e.target.value)}
-        placeholder="Enter command" /><button onClick={sendCommand} disabled={!selectedSensor || !command.trim()}>
-        Send Command
-      </button></>
   );
-  
 }
-
-export default App;
