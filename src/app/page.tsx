@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 export default function Setup() {
-  const [subs, setSubs] = useState<{ id: string; topic: string }[]>([]);
   const [messages, setMessages] = useState<Record<string, string[]>>({});
   const listenerMap = useRef<Record<string, UnlistenFn>>({}); // 🔁 prevent duplicate listen
+  const [subs, setSubs] = useState<
+    { id: string; topic: string; connected: boolean }[]
+  >([]);
 
   const loadSubs = async () => {
-    const list = (await invoke('list_subs')) as [string, string][];
-    setSubs(list.map(([id, topic]) => ({ id, topic })));
+    const list = (await invoke("list_subs_with_status")) as [
+      string,
+      string,
+      boolean
+    ][];
+    setSubs(list.map(([id, topic, connected]) => ({ id, topic, connected })));
 
     // Attach listeners only if not already attached
     await Promise.all(
@@ -31,7 +37,7 @@ export default function Setup() {
   };
 
   useEffect(() => {
-    invoke('init_zmq');
+    invoke("init_zmq");
     loadSubs();
 
     return () => {
@@ -42,16 +48,16 @@ export default function Setup() {
   }, []);
 
   const handleAdd = async () => {
-    const ok = await invoke('add_sub', { id: newId, topic: newTopic });
+    const ok = await invoke("add_sub", { id: newId, topic: newTopic });
     if (ok) {
       await loadSubs();
-      setNewId('');
-      setNewTopic('');
+      setNewId("");
+      setNewTopic("");
     }
   };
 
   const handleRemove = async (id: string) => {
-    await invoke('remove_sub', { id });
+    await invoke("remove_sub", { id });
 
     if (listenerMap.current[id]) {
       await listenerMap.current[id](); // unlisten
@@ -61,8 +67,8 @@ export default function Setup() {
     await loadSubs();
   };
 
-  const [newId, setNewId] = useState('');
-  const [newTopic, setNewTopic] = useState('');
+  const [newId, setNewId] = useState("");
+  const [newTopic, setNewTopic] = useState("");
 
   return (
     <div style={{ padding: 20 }}>
@@ -83,11 +89,22 @@ export default function Setup() {
 
       <h2>Current Subs</h2>
       {subs.map((sub) => (
-        <div key={sub.id} style={{ marginBottom: 20, padding: 10, border: '1px solid gray' }}>
+        <div
+          key={sub.id}
+          style={{ marginBottom: 20, padding: 10, border: "1px solid gray" }}
+        >
+          <strong>Status:</strong>{" "}
+          <span style={{ color: sub.connected ? "green" : "red" }}>
+            {sub.connected ? "Connected" : "Disconnected"}
+          </span>
           <strong>ID:</strong> {sub.id} <br />
           <strong>Topic:</strong> {sub.topic}
-          <button style={{ marginLeft: 10 }} onClick={() => handleRemove(sub.id)}>Remove</button>
-
+          <button
+            style={{ marginLeft: 10 }}
+            onClick={() => handleRemove(sub.id)}
+          >
+            Remove
+          </button>
           <ul>
             {(messages[sub.id] || []).map((msg, idx) => (
               <li key={idx}>{msg}</li>
