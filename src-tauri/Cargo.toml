@@ -58,3 +58,4 @@ prost = "0.13"
 # Only necessary if using Protobuf well-known types:
 prost-types = "0.13"
 tokio-serial = "5"
+futures = "0.3.31"

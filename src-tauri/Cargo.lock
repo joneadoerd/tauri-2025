@@ -116,6 +116,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "futures",
  "log",
  "prost",
  "prost-types",

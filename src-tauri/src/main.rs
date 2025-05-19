@@ -1,8 +1,12 @@
-mod commands;
+// mod commands;
 mod packet;
 mod serial;
 mod zmq;
-use commands::{
+mod zmq_server_tokio;
+
+mod commands_async;
+
+use commands_async::{
     add_sub, disconnect, init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
     send_data, start_serial, AppState,
 };
