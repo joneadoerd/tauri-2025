@@ -1,13 +1,13 @@
 use prost::Message;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
-use std::path;
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::packet::{Packet, PacketHeader};
+use crate::packet::PacketHeader;
 
 #[derive(Default,Clone)]
 pub struct SerialManager {

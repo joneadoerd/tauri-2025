@@ -9,13 +9,6 @@
     "main"
   ],
   "permissions": [
-    "window-state:default",
-    "updater:default",
-    "shell:default",
-    "positioner:default",
-    "notification:default",
-    "global-shortcut:default",
-    "cli:default",
-    "autostart:default"
+
   ]
 }

@@ -4,12 +4,7 @@
   "description": "enables the default permissions",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "websocket:default",
-    "fs:default",
-    {
-      "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$APPDATA/*" }]
-    }
+    "core:default"
+    
   ]
 }

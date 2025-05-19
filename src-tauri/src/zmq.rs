@@ -12,7 +12,7 @@ use zmq::Context;
 
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, File};
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 #[derive(Clone)]
 pub struct ZmqManager {
     pub context: Arc<Context>,
