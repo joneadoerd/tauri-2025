@@ -23,10 +23,10 @@ pub async fn init_zmq(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
 
 #[tauri::command]
 pub async fn add_sub(id: String, topic: String, app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
-    let zmq_lock = state.zmq.lock().await;
-    if let Some(manager) = &*zmq_lock {
-        if manager.add_subscription(id.clone(), topic.clone(), app).await {
-            manager.save_config();
+    let zmq_opt = state.zmq.lock().await;
+    if let Some(manager) = &*zmq_opt {
+        if manager.add_subscription(id, topic, app).await {
+            manager.save_config().await;
             return Ok(true);
         }
     }
@@ -38,7 +38,7 @@ pub async fn remove_sub(id: String, state: State<'_, AppState>) -> Result<bool, 
     let zmq_lock = state.zmq.lock().await;
     if let Some(manager) = &*zmq_lock {
         if manager.remove_subscription(&id).await {
-            manager.save_config();
+            manager.save_config().await;
             return Ok(true);
         }
     }

@@ -7,10 +7,11 @@ export function SerialTab() {
   const [selectedPort, setSelectedPort] = useState('');
   const [baudRate, setBaudRate] = useState('115200');
   const [connected, setConnected] = useState(false);
-  const [json, setJson] = useState('');
+  const [json, setJson] = useState('{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }');
   const [log, setLog] = useState<string[]>([]);
 
   useEffect(() => {
+    disconnect().then(error => {});
     invoke<string[]>('list_ports').then(setPorts).catch(console.error);
   }, []);
 
@@ -35,44 +36,44 @@ export function SerialTab() {
     await invoke('send_data', { json });
     setLog((prev) => [...prev, `Sent: ${json}`]);
   };
-const isValidJson = () => {
-  try {
-    JSON.parse(json);
-    return true;
-  } catch {
-    return false;
-  }
-};
+  const isValidJson = () => {
+    try {
+      JSON.parse(json);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        <select value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)} className="border p-2">
-          <option value="">Select Port</option>
-          {ports.map((port, i) => (
-            <option key={i} value={port}>{port}</option>
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <select value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)} className="border p-2">
+            <option value="">Select Port</option>
+            {ports.map((port, i) => (
+                <option key={i} value={port}>{port}</option>
+            ))}
+          </select>
+          <input type="number" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} className="border p-2 w-32" />
+          {connected ? (
+              <button onClick={disconnect} className="bg-red-500 text-white px-4 py-2 rounded">Disconnect</button>
+          ) : (
+              <button onClick={connect} className="bg-blue-500 text-white px-4 py-2 rounded">Connect</button>
+          )}
+        </div>
+
+        <textarea
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            placeholder='{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }'
+            className="border p-2 w-full h-24"
+        />
+        <button onClick={send} disabled={!connected} className="bg-green-500 text-white px-4 py-2 rounded">Send</button>
+
+        <div className="bg-white p-2 border h-40 overflow-auto text-sm">
+          {log.map((l, i) => (
+              <div key={i}>{l}</div>
           ))}
-        </select>
-        <input type="number" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} className="border p-2 w-32" />
-        {connected ? (
-          <button onClick={disconnect} className="bg-red-500 text-white px-4 py-2 rounded">Disconnect</button>
-        ) : (
-          <button onClick={connect} className="bg-blue-500 text-white px-4 py-2 rounded">Connect</button>
-        )}
+        </div>
       </div>
-
-      <textarea
-        value={json}
-        onChange={(e) => setJson(e.target.value)}
-        placeholder='{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }'
-        className="border p-2 w-full h-24"
-      />
-      <button onClick={send} disabled={!connected} className="bg-green-500 text-white px-4 py-2 rounded">Send</button>
-
-      <div className="bg-white p-2 border h-40 overflow-auto text-sm">
-        {log.map((l, i) => (
-          <div key={i}>{l}</div>
-        ))}
-      </div>
-    </div>
   );
 }

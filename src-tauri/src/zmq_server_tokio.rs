@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
@@ -5,14 +6,11 @@ use std::{
     io::BufReader,
     sync::Arc,
 };
-
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::{
     sync::{mpsc, Mutex},
     task::JoinHandle,
 };
-
 use zmq::Context;
 
 #[derive(Clone)]
@@ -34,7 +32,7 @@ pub struct Subscription {
     pub topic: String,
     pub handle: Option<JoinHandle<()>>,
     pub stop_tx: Option<mpsc::Sender<()>>,
-    pub connected: Arc<tokio::sync::Mutex<bool>>,
+    pub connected: Arc<Mutex<bool>>,
 }
 
 impl ZmqManager {
@@ -78,9 +76,7 @@ impl ZmqManager {
                         let manager = self.clone();
                         let app_clone = app.clone();
                         tokio::spawn(async move {
-                            manager
-                                .add_subscription(sub.id, sub.topic, app_clone)
-                                .await;
+                            manager.add_subscription(sub.id, sub.topic, app_clone).await;
                         });
                     }
                 }
@@ -94,62 +90,34 @@ impl ZmqManager {
             return false;
         }
 
-        let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
+        let context = Arc::clone(&self.context);
+        let (tx, rx) = mpsc::channel::<()>(1);
         let connected = Arc::new(Mutex::new(false));
-        let thread_id = id.clone();
-        let thread_topic = topic.clone();
-        let zmq_context = self.context.clone();
-        let connected_clone = connected.clone();
 
-        tokio::spawn(async move {
-            let socket = zmq_context.socket(zmq::SUB).unwrap();
-            if socket.connect("tcp://127.0.0.1:7000").is_err() {
-                return;
-            }
-
-            if socket.set_subscribe(thread_topic.as_bytes()).is_err() {
-                return;
-            }
-
-            {
-                let mut conn = connected_clone.lock().await;
-                *conn = true;
-            }
-
-            loop {
-                if stop_rx.try_recv().is_ok() {
-                    break;
-                }
-
-                match socket.recv_string(zmq::DONTWAIT) {
-                    Ok(Ok(msg)) => {
-                        let _ = app.emit(&format!("zmq-message-{}", thread_id), msg);
-                    }
-                    Err(_) => {
-                        let mut conn = connected_clone.lock().await;
-                        *conn = false;
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                    _ => {
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    }
-                }
-            }
-        });
+        let handle = spawn_zmq_subscription(
+            context,
+            id.clone(),
+            topic.clone(),
+            app,
+            rx,
+            Arc::clone(&connected),
+        );
 
         subs.insert(
             id.clone(),
             Subscription {
                 id,
                 topic,
-                handle: None,
-                stop_tx: Some(stop_tx),
+                handle: Some(handle),
+                stop_tx: Some(tx),
                 connected,
             },
         );
 
         true
     }
+
+    // Helper function for the blocking ZeroMQ logic
 
     pub async fn remove_subscription(&self, id: &str) -> bool {
         let mut subs = self.subs.lock().await;
@@ -174,4 +142,51 @@ impl ZmqManager {
             .map(|s| (s.id.clone(), s.topic.clone()))
             .collect()
     }
+}
+fn spawn_zmq_subscription(
+    context: Arc<Context>,
+    thread_id: String,
+    thread_topic: String,
+    app: AppHandle,
+    mut rx: mpsc::Receiver<()>,
+    connected: Arc<Mutex<bool>>,
+) -> JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        let socket = match context.socket(zmq::SUB) {
+            Ok(sock) => sock,
+            Err(_) => return,
+        };
+        if socket.connect("tcp://127.0.0.1:7000").is_err() {
+            return;
+        }
+        if socket.set_subscribe(thread_topic.as_bytes()).is_err() {
+            return;
+        }
+
+        {
+            let mut conn = connected.blocking_lock();
+            *conn = true;
+        }
+
+        loop {
+            if rx.try_recv().is_ok() {
+                break;
+            }
+
+            match socket.recv_bytes(zmq::DONTWAIT) {
+                Ok(msg_bytes) => {
+                    let encoded = base64::encode(&msg_bytes);
+                    let _ = app.emit(&format!("zmq-message-{}", thread_id), encoded);
+                }
+                Err(e) if e == zmq::Error::EAGAIN => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => {
+                    let mut conn = connected.blocking_lock();
+                    *conn = false;
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        }
+    })
 }

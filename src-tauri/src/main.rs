@@ -13,6 +13,7 @@ use commands_async::{
 
 #[tokio::main]
 async fn main() {
+    console_subscriber::init(); // starts the Tokio console layer
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
