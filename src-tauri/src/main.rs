@@ -3,6 +3,7 @@ mod packet;
 mod serial;
 mod zmq;
 mod zmq_server_tokio;
+mod logger;
 
 mod commands_async;
 
@@ -13,7 +14,8 @@ use commands_async::{
 
 #[tokio::main]
 async fn main() {
-    console_subscriber::init(); // starts the Tokio console layer
+    logger::init_logging(); // initialize file logging
+    // console_subscriber::init(); // starts the Tokio console layer
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![

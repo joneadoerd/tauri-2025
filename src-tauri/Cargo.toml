@@ -60,8 +60,9 @@ prost-types = "0.13"
 tokio-serial = "5"
 futures = "0.3.31"
 console-subscriber = "0.2"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
 base64 = "0.21.7"
-
+tracing-appender = "0.2.3"
+derivative = "2"
 
