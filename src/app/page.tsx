@@ -1,7 +1,7 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import ZmqTab from './ZmqTab';
-import { SerialTab } from './SerialTab';
+import SerialTab from './SerialTab';
 
 
 export default function App() {
@@ -24,7 +24,12 @@ export default function App() {
         </button>
       </div>
       <div>
-        {activeTab === 'zmq' ? <ZmqTab /> : <SerialTab />}
+        <div hidden={activeTab !== 'zmq'}>
+          <ZmqTab />
+        </div>
+        <div hidden={activeTab !== 'serial'}>
+          <SerialTab />
+        </div>
       </div>
     </div>
   );

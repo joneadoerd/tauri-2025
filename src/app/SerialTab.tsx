@@ -1,39 +1,38 @@
-'use client';
-import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+"use client";
+import { useEffect, useState, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Card } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Badge } from "../components/ui/badge";
+import { Separator } from "../components/ui/separator";
 
-export function SerialTab() {
+export default function SerialTab() {
   const [ports, setPorts] = useState<string[]>([]);
-  const [selectedPort, setSelectedPort] = useState('');
-  const [baudRate, setBaudRate] = useState('115200');
-  const [connected, setConnected] = useState(false);
-  const [json, setJson] = useState('{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }');
+  const [isConnected, setIsConnected] = useState(false);
+  const [baudRate, setBaudRate] = useState("115200");
+  const [data, setData] = useState<string[]>([]);
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [selectedPort, setSelectedPort] = useState("");
+  const [json, setJson] = useState(
+    '{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }'
+  );
   const [log, setLog] = useState<string[]>([]);
-
-  useEffect(() => {
-    disconnect().then(error => {});
-    invoke<string[]>('list_ports').then(setPorts).catch(console.error);
-  }, []);
-
-  const connect = async () => {
-    await invoke('start_serial', {
-      portName: selectedPort,
-      baudRate: parseInt(baudRate),
-    });
-    setConnected(true);
-  };
-
-  const disconnect = async () => {
-    await invoke('disconnect');
-    setConnected(false);
-  };
-
   const send = async () => {
     if (!isValidJson()) {
       setLog((prev) => [...prev, `Invalid JSON: ${json}`]);
       return;
     }
-    await invoke('send_data', { json });
+    await invoke("send_data", { json });
     setLog((prev) => [...prev, `Sent: ${json}`]);
   };
   const isValidJson = () => {
@@ -44,36 +43,108 @@ export function SerialTab() {
       return false;
     }
   };
+  useEffect(() => {
+    invoke("disconnect");
+    const loadPorts = async () => {
+      const ports = await invoke<string[]>("list_ports");
+      setPorts(ports);
+    };
+    loadPorts();
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen("serial_packet", (event) => {
+      // console.log('Received data:', event);
+      setData((prev) => [...prev, JSON.stringify(event.payload).toString()]);
+    });
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  const handleConnect = async () => {
+    if (isConnected) {
+      await invoke("disconnect");
+    } else {
+      await invoke("start_serial", {
+        portName: selectedPort,
+        baudRate: parseInt(baudRate),
+      });
+    }
+    setIsConnected(!isConnected);
+  };
+
   return (
-      <div className="space-y-4">
-        <div className="flex gap-2">
-          <select value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)} className="border p-2">
-            <option value="">Select Port</option>
-            {ports.map((port, i) => (
-                <option key={i} value={port}>{port}</option>
-            ))}
-          </select>
-          <input type="number" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} className="border p-2 w-32" />
-          {connected ? (
-              <button onClick={disconnect} className="bg-red-500 text-white px-4 py-2 rounded">Disconnect</button>
-          ) : (
-              <button onClick={connect} className="bg-blue-500 text-white px-4 py-2 rounded">Connect</button>
-          )}
+    <Card className="p-6 max-w-2xl mx-auto space-y-6">
+      <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
+        <div className="flex-1">
+          <Label className="mb-1 block">Port</Label>
+          <Select
+            value={selectedPort}
+            onValueChange={(e) => setSelectedPort(e)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select port" />
+            </SelectTrigger>
+            <SelectContent>
+              {ports.map((port) => (
+                <SelectItem key={port} value={port}>
+                  {port}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-
-        <textarea
-            value={json}
-            onChange={(e) => setJson(e.target.value)}
-            placeholder='{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }'
-            className="border p-2 w-full h-24"
+        <div className="w-32">
+          <Label className="mb-1 block">Baud Rate</Label>
+          <Input
+            type="number"
+            value={baudRate}
+            onChange={(e) => setBaudRate(e.target.value)}
+          />
+        </div>
+        <Button onClick={handleConnect} className="w-full md:w-auto">
+          {isConnected ? "Disconnect" : "Connect"}
+        </Button>
+      </div>
+      <div className="flex gap-4 mb-4">
+        <Input
+          value={json}
+          onChange={(e) => setJson(e.target.value)}
+          className="flex-1"
+          placeholder="JSON data to send"
         />
-        <button onClick={send} disabled={!connected} className="bg-green-500 text-white px-4 py-2 rounded">Send</button>
-
-        <div className="bg-white p-2 border h-40 overflow-auto text-sm">
+        <Button
+          onClick={send}
+          disabled={!isConnected}
+          className="bg-green-500 text-white"
+        >
+          Send
+        </Button>
+      </div>
+      <Separator />
+      <div className="mb-4">
+        <Label className="mb-1 block">Log</Label>
+        <div className="bg-muted p-2 border h-32 overflow-auto text-sm rounded">
           {log.map((l, i) => (
-              <div key={i}>{l}</div>
+            <div key={i}>{l}</div>
           ))}
         </div>
       </div>
+      <div>
+        <Label className="mb-1 block">Serial Data</Label>
+        <div
+          ref={parentRef}
+          className="h-64 overflow-auto rounded border bg-muted text-sm font-mono p-2"
+        >
+          {data.map((item, index) => (
+            <div key={index} className="p-1 border-b last:border-b-0">
+              {item}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
   );
 }
