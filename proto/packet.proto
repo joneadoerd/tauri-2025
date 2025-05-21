@@ -1,0 +1,200 @@
+syntax = "proto3";
+package packet;
+
+message Packet {
+  PacketHeader header = 1;
+  PacketPayload payload = 2;
+  PacketChecksum checksum = 3;
+  PacketTimestamp timestamp = 4;
+  PacketSource source = 5;
+  PacketDestination destination = 6;
+  PacketProtocol protocol = 7;
+  PacketFlags flags = 8;
+  PacketVersion version = 9;
+}
+message PacketHeader {
+  uint32 id = 1;
+  uint32 length = 2;
+  uint32 checksum = 3;
+  uint32 version = 4;
+  uint32 flags = 5;
+}
+message PacketPayload {
+  uint32 type = 1;
+  bytes data = 2;
+  uint32 size = 3;
+  string encoding = 4;
+}
+message PacketChecksum {
+  uint32 algorithm = 1;
+  bytes value = 2;
+  uint32 length = 3;
+}
+message PacketTimestamp {
+  uint32 seconds = 1;
+  uint32 nanoseconds = 2;
+}
+message PacketSource {
+  string ip = 1;
+  uint32 port = 2;
+  string mac = 3;
+}
+message PacketDestination {
+  string ip = 1;
+  uint32 port = 2;
+  string mac = 3;
+}
+message PacketProtocol {
+  string name = 1;
+  uint32 version = 2;
+  string description = 3;
+}
+message PacketFlags {
+  bool is_fragmented = 1;
+  bool is_encrypted = 2;
+  bool is_compressed = 3;
+  bool is_signed = 4;
+}
+message PacketVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+  uint32 patch = 3;
+  string build = 4;
+}
+message PacketError {
+  uint32 code = 1;
+  string message = 2;
+  string details = 3;
+}
+message PacketStatus {
+  uint32 code = 1;
+  string message = 2;
+  string details = 3;
+}
+message PacketResponse {
+  uint32 code = 1;
+  string message = 2;
+  bytes data = 3;
+  PacketError error = 4;
+  PacketStatus status = 5;
+}
+message PacketRequest {
+  uint32 id = 1;
+  string method = 2;
+  bytes params = 3;
+  PacketError error = 4;
+  PacketStatus status = 5;
+}
+message PacketAck {
+  uint32 id = 1;
+  string message = 2;
+  bytes data = 3;
+  PacketError error = 4;
+  PacketStatus status = 5;
+}
+message PacketNack {
+  uint32 id = 1;
+  string message = 2;
+  bytes data = 3;
+  PacketError error = 4;
+  PacketStatus status = 5;
+}
+message PacketPing {
+  uint32 id = 1;
+  string message = 2;
+  bytes data = 3;
+  PacketError error = 4;
+  PacketStatus status = 5;
+}
+
+// syntax = "proto3";
+
+// package packet;
+
+
+// // ====================== الرسالة الرئيسية ======================
+// message TelemetryPacket {
+//   // ------------------ Basic Data ------------------
+//   VelocityData velocity_data = 1;   
+//   EulerAngle  euler_angle = 2;
+//   Position position = 3;  
+//   // ------------------ Network & Transmission ------------------
+//   uint32 sequence_number = 4;      
+//    bool requires_ack = 5;           
+//   bytes checksum = 6;             
+
+//   // ------------------ Error Handling ------------------
+//   repeated TransmissionError errors = 7; // قائمة الأخطاء
+//   RetransmissionRequest retransmission = 8; // طلب إعادة إرسال
+
+ 
+// }
+
+// // ====================== تعريفات الرسائل الفرعية ======================
+
+// // بيانات الحساسات
+// message VelocityData {
+//     float V_x = 1;
+//     float V_y = 2;
+//     float V_z = 3;
+// }
+
+// // التوجيه
+// message EulerAngle {
+//   float roll = 1;    // Roll (rad)
+//   float pitch = 2;   // Pitch (rad)
+//   float yaw = 3;     // Yaw (rad)
+// }
+
+// // الموضع
+// message Position {
+//   double x = 1;   
+//   double y = 2;   
+//   double z = 3;    
+// }
+
+// // معلومات الجهاز
+// message DeviceInfo {
+//   string device_id = 1;        
+//   string firmware_version = 2;     
+//   uint32 uptime = 3;            
+// }
+
+// // معلومات الشبكة
+// message NetworkInfo {
+//   uint32 rssi = 1;           
+//   float packet_loss = 2;      
+//   string ip_address = 3;       
+//   uint32 tx_power = 4;        
+// }
+
+// // خطأ في الإرسال
+// message TransmissionError {
+//   ErrorCode code = 1;
+//   string message = 2;
+// string occurrence_time = 3;
+// }
+
+// // طلب إعادة الإرسال
+// message RetransmissionRequest {
+//   repeated uint32 missing_sequences = 1;  // الأرقام المفقودة
+//   uint32 retry_count = 2;                 // عدد المحاولات
+// }
+
+// // ======================  (Enums) ======================
+// enum ErrorCode {
+  
+//   NETWORK_DROPPED_PACKET = 0;
+//   NETWORK_HIGH_LATENCY = 1;
+  
+  
+//   PROTOCOL_VERSION_MISMATCH = 2;
+//   CHECKSUM_MISMATCH = 3;
+// }
+
+// enum EncryptionType {
+//   NONE = 0;
+//   AES_128 = 1;
+//   AES_256 = 2;
+//   CUSTOM = 3;
+// }

@@ -10,6 +10,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.4.0",
     "@hookform/resolvers": "^5.0.1",
     "@radix-ui/react-accordion": "^1.2.10",
     "@radix-ui/react-alert-dialog": "^1.1.13",
@@ -71,6 +72,7 @@
     "lucide-react": "^0.508.0",
     "next": "15.2.3",
     "next-themes": "^0.4.6",
+    "protoc-gen-js": "3.21.4-4",
     "react": "^19.0.0",
     "react-chartjs-2": "^5.3.0",
     "react-day-picker": "8.10.1",
@@ -81,10 +83,14 @@
     "sonner": "^2.0.3",
     "tailwind-merge": "^3.2.0",
     "tauri-plugin-serialplugin": "^2.11.0",
+    "ts-proto": "^2.7.0",
+    "ts-protoc-gen": "^0.15.0",
     "vaul": "^1.1.2",
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.54.0",
+    "@bufbuild/protoc-gen-es": "^2.4.0",
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.4.0",

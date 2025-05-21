@@ -218,21 +218,16 @@ fn spawn_zmq_subscription(
                 Ok(parts) => {
                     if parts.len() == 2 {
                         let _topic = String::from_utf8_lossy(&parts[0]);
-                 
-                        
-                       let data =PacketHeader::decode(&*parts[1]).unwrap();
-                        let _ = app.emit(&format!("zmq-message-{}", thread_id), data);  
-                          
+                        let _ = app.emit(&format!("zmq-message-{}", thread_id), &*parts[1]);
                     }
                 }
-                
+
                 Err(_e) => {
                     let mut conn = connected.blocking_lock();
                     *conn = false;
                     // error!("Failed to receive message: {}",e);
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
-                
             }
         }
     })

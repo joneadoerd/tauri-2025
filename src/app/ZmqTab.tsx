@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
-
+import { PacketHeader } from "../gen/packet";
 export default function Setup() {
   const [messages, setMessages] = useState<Record<string, string[]>>({});
   const listenerMap = useRef<Record<string, UnlistenFn>>({}); // 🔁 prevent duplicate listen
@@ -30,15 +30,20 @@ export default function Setup() {
       list.map(async ([id]) => {
         if (!listenerMap.current[id]) {
           const unlisten = await listen(`zmq-message-${id}`, (event) => {
+            // event.payload is expected to be base64-encoded binary string
+
+            // Decode base64 to Uint8Array
+
+            const packet = PacketHeader.decode(
+              new Uint8Array(event.payload as ArrayBuffer)
+            );
+            // console.log("Received data:", event.payload );
+
             setMessages((prev) => ({
               ...prev,
-              [id]: [
-                ...(prev[id] || []),
-                JSON.stringify(event.payload).toString(),
-              ],
+              [id]: [...(prev[id] || []), JSON.stringify(packet)],
             }));
           });
-
           listenerMap.current[id] = unlisten;
         }
       })
