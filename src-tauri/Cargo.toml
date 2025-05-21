@@ -21,7 +21,7 @@ tauri-build = { version = "2.2.0", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.4.0", features = ["config-toml", "devtools"] }
+tauri = { version = "2.5.0", features = ["config-toml", "devtools"] }
 tauri-plugin-log = "2"
 # tauri-plugin-websocket = "2"
 # tauri-plugin-upload = "2"
@@ -60,8 +60,9 @@ prost-types = "0.13"
 tokio-serial = "5"
 futures = "0.3.31"
 console-subscriber = "0.2"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
 base64 = "0.21.7"
-
+tracing-appender = "0.2.3"
+derivative = "2"
 

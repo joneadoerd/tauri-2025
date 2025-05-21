@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::packet::PacketHeader;
 
-#[derive(Default,Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct SerialManager {
     pub writer: Arc<Mutex<Option<WriteHalf<SerialStream>>>>,
     pub reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -39,7 +39,7 @@ impl SerialManager {
                         buf.truncate(n);
                         match PacketHeader::decode(&*buf) {
                             Ok(packet) => {
-                                println!("[serialcom] Received: {:?}", packet);
+                                // println!("[serialcom] Received: {:?}", packet);
                                 on_packet(packet);
                             },
                             Err(e) => eprintln!("[serialcom] Decode error: {}", e),
@@ -64,7 +64,7 @@ impl SerialManager {
 
         if let Some(writer) = self.writer.lock().await.as_mut() {
             writer.write_all(&buf).await.map_err(|e| e.to_string())?;
-            println!("[serialcom] Sent: {:?}", json);
+            // println!("[serialcom] Sent: {:?}", json);
             Ok(())
         } else {
             Err("Writer not initialized.".into())
