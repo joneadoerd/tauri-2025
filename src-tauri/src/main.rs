@@ -4,7 +4,7 @@ mod serial;
 mod zmq;
 mod zmq_server_tokio;
 mod logger;
-
+mod general;
 mod commands_async;
 
 use commands_async::{
