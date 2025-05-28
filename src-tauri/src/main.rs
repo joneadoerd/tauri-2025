@@ -1,22 +1,29 @@
 // mod commands;
+mod commands_async;
+mod general;
+mod logger;
 mod packet;
 mod serial;
 mod zmq;
 mod zmq_server_tokio;
-mod logger;
-mod general;
-mod commands_async;
 
 use commands_async::{
     add_sub, disconnect, init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
     send_data, start_serial, AppState,
 };
+use general::{
+    commands::{
+        list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
+    },
+    serial::SerialManager,
+};
 
 #[tokio::main]
 async fn main() {
     logger::init_logging(); // initialize file logging
-    // console_subscriber::init(); // starts the Tokio console layer
+                            // console_subscriber::init(); // starts the Tokio console layer
     tauri::Builder::default()
+        .manage(SerialManager::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             init_zmq,
@@ -26,7 +33,12 @@ async fn main() {
             list_subs_with_status,
             list_ports,
             start_serial,
+            start_connection,
             disconnect,
+            stop_connection,
+            send_packet,
+            list_serial_ports,
+            list_connections,
             send_data,
         ])
         .run(tauri::generate_context!())

@@ -87,8 +87,8 @@ export default function SerialTab() {
               <SelectValue placeholder="Select port" />
             </SelectTrigger>
             <SelectContent>
-              {ports.map((port) => (
-                <SelectItem key={port} value={port}>
+              {ports.map((port, idx) => (
+                <SelectItem key={port + "-" + idx} value={port}>
                   {port}
                 </SelectItem>
               ))}
