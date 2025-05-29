@@ -38,6 +38,7 @@ export default function SerialTabGeneral() {
     json: '{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }',
   });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
+  const [packetType, setPacketType] = useState("Header");
 
   useEffect(() => {
     const init = async () => {
@@ -53,7 +54,7 @@ export default function SerialTabGeneral() {
     const unlistenAll: (() => void)[] = [];
     listConnections().then((conns) => {
       conns.forEach(({ id }) => {
-        const unlisten = listen<PacketHeader>(
+        const unlisten = listen(
           `serial_packet_${id}`,
           (event) => {
             // If event.payload is base64, decode and parse as PacketHeader
@@ -79,7 +80,7 @@ export default function SerialTabGeneral() {
   }, [connections]);
 
   const connect = async () => {
-    await startConnection(form.id, form.port, parseInt(form.baud));
+    await startConnection(form.id, form.port, parseInt(form.baud), packetType);
     const updated = await listConnections();
     setConnections(updated);
   };
@@ -94,15 +95,18 @@ export default function SerialTabGeneral() {
     if (!isValidJson()) {
       setLogs((prev) => ({
         ...prev,
-        [id]: [...(prev[id] || []), `Invalid JSON: ${form.json}`],
+        [id]: [...(prev[id] || []), `Invalid JSON: ${JSON.stringify(wrapper)}`],
       }));
       return;
     }
-    const data = PacketHeader.fromJSON(JSON.parse(form.json));
-    await sendPacket(id, PacketHeader.encode(data).finish());
+    const wrapper = {
+      type: packetType,
+      payload: JSON.parse(form.json),
+    };
+    await sendPacket(id, JSON.stringify(wrapper));
     setLogs((prev) => ({
       ...prev,
-      [id]: [...(prev[id] || []), `Sent: ${form.json}`],
+      [id]: [...(prev[id] || []), `Sent: ${JSON.stringify(wrapper)}`],
     }));
   };
   const isValidJson = () => {
@@ -124,6 +128,15 @@ export default function SerialTabGeneral() {
             onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
           />
         </div>
+        <Select value={packetType} onValueChange={setPacketType}>
+          <SelectTrigger>
+            <SelectValue placeholder="Packet type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Header">Header</SelectItem>
+            <SelectItem value="Payload">Payload</SelectItem>
+          </SelectContent>
+        </Select>
         <div>
           <Label>Port</Label>
           <Select

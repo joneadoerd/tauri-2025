@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::packet::PacketHeader;
 #[derive(Serialize, Clone, Debug)]
 pub struct SerialConnectionInfo {
     pub id: String,
@@ -29,12 +28,12 @@ pub struct SerialManager {
 }
 
 impl SerialManager {
-    pub async fn start(
+    pub async fn start<F: Message + Default>(
         &self,
         id: String,
         port_name: String,
         baud_rate: u32,
-        mut on_packet: impl FnMut(String, PacketHeader) + Send + 'static,
+        mut on_packet: impl FnMut(String, F) + Send + 'static,
     ) -> Result<(), String> {
         let mut connections = self.connections.lock().await;
         if connections.contains_key(&id) {
@@ -57,7 +56,7 @@ impl SerialManager {
                 match reader.read(&mut buf).await {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);
-                        match PacketHeader::decode(&*buf) {
+                        match Message::decode(buf.as_slice()) {
                             Ok(packet) => on_packet(reader_id.clone(), packet),
                             Err(e) => eprintln!("[serialcom] Decode error: {}", e),
                         }
@@ -124,7 +123,17 @@ impl SerialManager {
             .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
             .map_err(|e| e.to_string())
     }
-
+    pub async fn send_raw(&self, id: &str, data: Vec<u8>) -> Result<(), String> {
+        let conn = self.connections.lock().await.get(id).cloned();
+        if let Some(conn) = conn {
+            if let Some(writer) = conn.writer.lock().await.as_mut() {
+                writer.write_all(&data).await.map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            return Err("Writer not initialized.".into());
+        }
+        Err("Connection not found.".into())
+    }
     pub async fn list_connections(&self) -> Vec<SerialConnectionInfo> {
         self.connections
             .lock()
