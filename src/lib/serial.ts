@@ -26,3 +26,11 @@ export async function listSerialPorts(): Promise<string[]> {
 export async function listConnections(): Promise<SerialConnectionInfo[]> {
   return invoke<SerialConnectionInfo[]>("list_connections");
 }
+
+export async function startShare(fromId: string, toId: string) {
+  return invoke("start_share", { fromId, toId });
+}
+
+export async function stopShare() {
+  return invoke("stop_share");
+}

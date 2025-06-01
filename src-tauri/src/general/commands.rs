@@ -55,3 +55,18 @@ pub async fn list_connections(
 ) -> Result<Vec<SerialConnectionInfo>, String> {
     Ok(state.list_connections().await)
 }
+
+#[tauri::command]
+pub async fn start_share(
+    state: State<'_, SerialManager>,
+    from_id: String,
+    to_id: String,
+) -> Result<(), String> {
+    state.start_share(from_id, to_id).await
+}
+
+#[tauri::command]
+pub async fn stop_share(state: State<'_, SerialManager>) -> Result<(), String> {
+    state.stop_share().await;
+    Ok(())
+}

@@ -8,6 +8,8 @@ import {
   sendPacket,
   listSerialPorts,
   listConnections,
+  startShare,
+  stopShare,
   SerialConnectionInfo,
 } from "@/lib/serial";
 import { listen } from "@tauri-apps/api/event";
@@ -39,6 +41,9 @@ export default function SerialTabGeneral() {
   });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [packetType, setPacketType] = useState("Header");
+  const [shareFrom, setShareFrom] = useState("");
+  const [shareTo, setShareTo] = useState("");
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -118,6 +123,17 @@ export default function SerialTabGeneral() {
     }
   };
 
+  const handleStartShare = async () => {
+    if (!shareFrom || !shareTo) return;
+    await startShare(shareFrom, shareTo);
+    setSharing(true);
+  };
+
+  const handleStopShare = async () => {
+    await stopShare();
+    setSharing(false);
+  };
+
   return (
     <Card className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="grid md:grid-cols-4 gap-4">
@@ -176,6 +192,45 @@ export default function SerialTabGeneral() {
       </div>
 
       <Separator />
+      <div className="flex items-center gap-4">
+        <div>
+          <Label>Share From</Label>
+          <Select value={shareFrom} onValueChange={setShareFrom}>
+            <SelectTrigger>
+              <SelectValue placeholder="From Connection" />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Share To</Label>
+          <Select value={shareTo} onValueChange={setShareTo}>
+            <SelectTrigger>
+              <SelectValue placeholder="To Connection" />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          onClick={sharing ? handleStopShare : handleStartShare}
+          disabled={!shareFrom || !shareTo || shareFrom === shareTo}
+          variant={sharing ? "destructive" : "default"}
+        >
+          {sharing ? "Stop Share" : "Start Share (10ms)"}
+        </Button>
+      </div>
 
       {connections.map((conn, index) => (
         <Card key={index} className="p-4 mb-4 space-y-2">

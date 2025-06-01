@@ -40,6 +40,9 @@ async fn main() {
             list_serial_ports,
             list_connections,
             send_data,
+            // Add the new share commands
+            general::commands::start_share,
+            general::commands::stop_share,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
