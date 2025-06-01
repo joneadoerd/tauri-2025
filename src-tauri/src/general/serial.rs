@@ -1,16 +1,18 @@
+use log::info;
 use prost::Message;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use once_cell::sync::Lazy;
 use tokio::sync::Mutex as TokioMutex;
 
-static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> = Lazy::new(|| TokioMutex::new(HashMap::new()));
+static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
+    Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[derive(Serialize, Clone, Debug)]
 pub struct SerialConnectionInfo {
@@ -159,35 +161,52 @@ impl SerialManager {
             .collect()
     }
     /// Start sharing data between two serial connections every 10ms
-    pub async fn start_share(&self, from_id: String, to_id: String) -> Result<(), String> {
-        let connections = self.connections.lock().await;
-        let to_conn = connections.get(&to_id).cloned();
-        drop(connections);
-        if to_conn.is_none() {
-            return Err("Destination connection not found".into());
-        }
-        let to_conn = to_conn.unwrap();
-        let share_task = tokio::spawn(async move {
-            loop {
-                // Get the latest data received from 'from_id'
-                let mut last_data = LAST_DATA.lock().await;
-                if let Some(data) = last_data.get(&from_id) {
-                    if !data.is_empty() {
-                        // Write to 'to_conn'
-                        let mut to_writer_guard = to_conn.writer.lock().await;
-                        if let Some(writer) = to_writer_guard.as_mut() {
-                            let _ = writer.write_all(data).await;
-                        }
+pub async fn start_share(&self, from_id: String, to_id: String) -> Result<(), String> {
+    let connections = self.connections.lock().await;
+    let to_conn = connections.get(&to_id).cloned();
+    drop(connections);
+    if to_conn.is_none() {
+        return Err("Destination connection not found".into());
+    }
+    let to_conn = to_conn.unwrap();
+
+    let share_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(10));
+        let mut last_tick = tokio::time::Instant::now();
+
+        loop {
+            interval.tick().await;
+
+            // Measure time since last tick
+            let now = tokio::time::Instant::now();
+            let elapsed = now.duration_since(last_tick);
+            last_tick = now;
+
+            // Log time spent (actual time between ticks)
+            info!(
+                "Interval tick: elapsed = {} ms",
+                elapsed.as_secs_f64() * 1000.0
+            );
+
+            // Get the latest data received from 'from_id'
+            let last_data = LAST_DATA.lock().await;
+            if let Some(data) = last_data.get(&from_id) {
+                if !data.is_empty() {
+                    // Write to 'to_conn'
+                    let mut to_writer_guard = to_conn.writer.lock().await;
+                    if let Some(writer) = to_writer_guard.as_mut() {
+                        let _ = writer.write_all(data).await;
                     }
                 }
-                drop(last_data);
-                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-        });
-        let mut task_handle = self.share_task.lock().await;
-        *task_handle = Some(share_task);
-        Ok(())
-    }
+        }
+    });
+
+    let mut task_handle = self.share_task.lock().await;
+    *task_handle = Some(share_task);
+    Ok(())
+}
+
 
     /// Stop the sharing task
     pub async fn stop_share(&self) {
