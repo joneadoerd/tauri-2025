@@ -134,8 +134,20 @@ export default function SerialTabGeneral() {
     setSharing(false);
   };
 
+  const handleInitComs = async () => {
+    await startConnection("com3_id", "COM3", 115200, "Header");
+    await startConnection("com6_id", "COM6", 115200, "Header");
+    const updated = await listConnections();
+    setConnections(updated);
+  };
+
   return (
     <Card className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="flex justify-end mb-4">
+        <Button onClick={handleInitComs}>
+          Init COM3 &amp; COM6 (Header)
+        </Button>
+      </div>
       <div className="grid md:grid-cols-4 gap-4">
         <div>
           <Label>ID</Label>
