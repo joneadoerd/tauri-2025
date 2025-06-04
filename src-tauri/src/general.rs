@@ -1,6 +1,6 @@
 pub mod commands;
 pub mod serial;
-
+pub mod timer_res;
 use std::str::FromStr;
 
 use prost::Message;

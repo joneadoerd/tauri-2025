@@ -138,6 +138,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "winapi",
  "zmq",
 ]
 

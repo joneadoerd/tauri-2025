@@ -3,13 +3,18 @@ use prost::Message;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
+use tokio::time;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use tracing::{error, warn};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
+
+use super::timer_res::win_timer;
+
 
 static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
@@ -162,56 +167,94 @@ impl SerialManager {
     }
     /// Start sharing data between two serial connections every 10ms
 pub async fn start_share(&self, from_id: String, to_id: String) -> Result<(), String> {
-    let connections = self.connections.lock().await;
-    let to_conn = connections.get(&to_id).cloned();
-    drop(connections);
-    if to_conn.is_none() {
-        return Err("Destination connection not found".into());
-    }
-    let to_conn = to_conn.unwrap();
+        // Get destination connection
+        let to_conn = {
+            let connections = self.connections.lock().await;
+            connections.get(&to_id).cloned()
+                .ok_or_else(|| format!("Connection {} not found", to_id))?
+        };
 
-    let share_task = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(10));
-        let mut last_tick = tokio::time::Instant::now();
+        // Enable high-resolution timer on Windows
+        #[cfg(windows)]
+        win_timer::enable().map_err(|e| {
+            error!("Timer resolution error: {}", e);
+            e
+        })?;
 
-        loop {
-            interval.tick().await;
+        let share_task = tokio::spawn(async move {
+            let mut next_wake = time::Instant::now();
+            let interval = Duration::from_millis(10);
+            let mut last_data = Vec::new();
 
-            // Measure time since last tick
-            let now = tokio::time::Instant::now();
-            let elapsed = now.duration_since(last_tick);
-            last_tick = now;
+            loop {
+                // Update next wake time
+                next_wake += interval;
 
-            // Log time spent (actual time between ticks)
-            info!(
-                "Interval tick: elapsed = {} ms",
-                elapsed.as_secs_f64() * 1000.0
-            );
-
-            // Get the latest data received from 'from_id'
-            let last_data = LAST_DATA.lock().await;
-            if let Some(data) = last_data.get(&from_id) {
-                if !data.is_empty() {
-                    // Write to 'to_conn'
-                    let mut to_writer_guard = to_conn.writer.lock().await;
-                    if let Some(writer) = to_writer_guard.as_mut() {
-                        let _ = writer.write_all(data).await;
+                // Get the data to send (minimize lock time)
+                {
+                    let data_guard = LAST_DATA.lock().await;
+                    if let Some(data) = data_guard.get(&from_id) {
+                        last_data = data.clone();
                     }
                 }
+
+                // Skip if no data
+                if last_data.is_empty() {
+                    time::sleep_until(next_wake).await;
+                    continue;
+                }
+
+                // Sleep most of the interval
+                let now = time::Instant::now();
+                if now < next_wake {
+                    let sleep_time = next_wake - now - Duration::from_micros(1500);
+                    if !sleep_time.is_zero() {
+                        time::sleep(sleep_time).await;
+                    }
+
+                    // Precise wait for remaining time
+                    #[cfg(windows)]
+                    while time::Instant::now() < next_wake {
+                        std::hint::spin_loop();
+                    }
+                }
+
+                // Send data
+                let mut writer_guard = to_conn.writer.lock().await;
+                if let Some(writer) = writer_guard.as_mut() {
+                    if let Err(e) = writer.write_all(&last_data).await {
+                        error!("Write error: {}", e);
+                        break;
+                    }
+                } else {
+                    warn!("Writer disconnected");
+                    break;
+                }
+
+                // Log timing info
+                let elapsed = time::Instant::now().duration_since(next_wake - interval);
+                info!(
+                    "Interval: target={}ms, actual={}ms",
+                    interval.as_secs_f64() * 1000.0,
+                    elapsed.as_secs_f64() * 1000.0
+                );
             }
-        }
-    });
 
-    let mut task_handle = self.share_task.lock().await;
-    *task_handle = Some(share_task);
-    Ok(())
-}
+            // Clean up Windows timer
+            #[cfg(windows)]
+            win_timer::disable();
+        });
 
+        // Store the task handle
+        *self.share_task.lock().await = Some(share_task);
+        Ok(())
+    }
 
-    /// Stop the sharing task
     pub async fn stop_share(&self) {
         if let Some(task) = self.share_task.lock().await.take() {
             task.abort();
         }
+        #[cfg(windows)]
+        win_timer::disable();
     }
 }
