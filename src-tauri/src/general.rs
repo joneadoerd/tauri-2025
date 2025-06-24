@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod simulation;
 pub mod serial;
 pub mod timer_res;
 use std::str::FromStr;

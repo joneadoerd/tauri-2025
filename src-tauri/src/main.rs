@@ -23,6 +23,7 @@ async fn main() {
     logger::init_logging(); // initialize file logging
                             // console_subscriber::init(); // starts the Tokio console layer
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .manage(SerialManager::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
@@ -42,6 +43,8 @@ async fn main() {
             send_data,
             // Add the new share commands
             general::commands::start_share,
+            general::commands::simulation,
+            general::commands::ping,
             general::commands::stop_share,
         ])
         .run(tauri::generate_context!())

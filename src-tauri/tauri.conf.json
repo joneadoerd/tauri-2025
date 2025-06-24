@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["binaries/ping","binaries/sim"],
     "targets": "all",
     "icon": [
       "icons/32x32.png",

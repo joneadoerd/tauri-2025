@@ -1,6 +1,7 @@
 // src/lib/serial.ts
 import { invoke } from "@tauri-apps/api/core";
 
+
 export interface SerialConnectionInfo {
   id: string;
   port_name: string;
@@ -33,4 +34,8 @@ export async function startShare(fromId: string, toId: string) {
 
 export async function stopShare() {
   return invoke("stop_share");
+}
+
+export async function simulation(message: string): Promise<string> {
+  return invoke("simulation", { message });
 }

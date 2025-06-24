@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package simulation;
+
+message F16State {
+  double vt = 1;
+  double alpha = 2;
+  double beta = 3;
+  double phi = 4;
+  double theta = 5;
+  double psi = 6;
+  double p = 7;
+  double q = 8;
+  double r = 9;
+  double pn = 10;
+  double pe = 11;
+  double h = 12;
+  double pow = 13;
+  double time = 14; // Use google.protobuf.DoubleValue for optional if needed
+}
+
+message Position {
+  double alt = 1;
+  double lat = 2;
+  double lon = 3;
+}
+
+message Target {
+  uint32 id = 1;
+  F16State init_state = 2;
+  repeated Position waypoints = 3;
+}
+
+message Simulation {
+  repeated Target targets = 1;
+  double time_step = 2;
+  double max_time = 3;
+}
+
+message SimulationResult {
+  uint32 target_id = 1;
+  repeated double time = 2;
+  repeated Position waypoints = 3;
+  double run_time = 4;
+  repeated F16State final_state = 5;
+}
+
+message SimulationResultList {
+  repeated SimulationResult results = 1;
+}

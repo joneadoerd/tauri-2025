@@ -3,10 +3,11 @@ import React, { useState } from "react";
 import ZmqTab from "./ZmqTab";
 import SerialTab from "./SerialTab";
 import SerialTabGeneral from "./SerialTabGeneral";
+import SimulationRunner from "./SimulationRunner";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "zmq" | "serial" | "serial-general"
+    "zmq" | "serial" | "serial-general" | "simulation"
   >("serial");
 
   return (
@@ -40,6 +41,16 @@ export default function App() {
         >
           Serial General
         </button>
+        <button
+          className={`px-4 py-2 rounded ${
+            activeTab === "simulation"
+              ? "bg-blue-500 text-white"
+              : "bg-white border"
+          }`}
+          onClick={() => setActiveTab("simulation")}
+        >
+          Simulation
+        </button>
       </div>
       <div>
         <div hidden={activeTab !== "zmq"}>
@@ -50,6 +61,9 @@ export default function App() {
         </div>
         <div hidden={activeTab !== "serial-general"}>
           <SerialTabGeneral />
+        </div>
+        <div hidden={activeTab !== "simulation"}>
+          <SimulationRunner />
         </div>
       </div>
     </div>
