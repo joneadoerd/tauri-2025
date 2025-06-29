@@ -1,13 +1,18 @@
 // src/lib/serial.ts
+import { Simulation } from "@/gen/simulation";
 import { invoke } from "@tauri-apps/api/core";
-
 
 export interface SerialConnectionInfo {
   id: string;
   port_name: string;
 }
 
-export async function startConnection(id: string, port: string, baud: number ,packetType: string) {
+export async function startConnection(
+  id: string,
+  port: string,
+  baud: number,
+  packetType: string
+) {
   return invoke("start_connection", { id, port, baud, packetType });
 }
 
@@ -36,6 +41,7 @@ export async function stopShare() {
   return invoke("stop_share");
 }
 
-export async function simulation(message: string): Promise<string> {
-  return invoke("simulation", { message });
+export async function simulation(sim: Simulation): Promise<string> {
+  console.log("Running simulation with state:", sim);
+  return invoke("simulation", { sim });
 }

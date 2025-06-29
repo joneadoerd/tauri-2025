@@ -1,7 +1,7 @@
 pub mod commands;
-pub mod simulation;
 pub mod serial;
 pub mod timer_res;
+pub mod simulation_commands;
 use std::str::FromStr;
 
 use prost::Message;

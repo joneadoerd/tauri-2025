@@ -4,10 +4,11 @@ import ZmqTab from "./ZmqTab";
 import SerialTab from "./SerialTab";
 import SerialTabGeneral from "./SerialTabGeneral";
 import SimulationRunner from "./SimulationRunner";
+import SimulationMapView from "./simulation-map";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "zmq" | "serial" | "serial-general" | "simulation"
+    "zmq" | "serial" | "serial-general" | "simulation" | "simulation-map"
   >("serial");
 
   return (
@@ -51,6 +52,16 @@ export default function App() {
         >
           Simulation
         </button>
+        <button
+          className={`px-4 py-2 rounded ${
+            activeTab === "simulation-map"
+              ? "bg-blue-500 text-white"
+              : "bg-white border"
+          }`}
+          onClick={() => setActiveTab("simulation-map")}
+        >
+          Simulation Map
+        </button>
       </div>
       <div>
         <div hidden={activeTab !== "zmq"}>
@@ -64,6 +75,9 @@ export default function App() {
         </div>
         <div hidden={activeTab !== "simulation"}>
           <SimulationRunner />
+        </div>
+        <div hidden={activeTab !== "simulation-map"}>
+          <SimulationMapView />
         </div>
       </div>
     </div>

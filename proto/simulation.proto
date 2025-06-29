@@ -12,11 +12,11 @@ message F16State {
   double p = 7;
   double q = 8;
   double r = 9;
-  double pn = 10;
-  double pe = 11;
-  double h = 12;
+  double lat = 10;  // Latitude in radians
+  double lon = 11;  // Longitude in radians
+  double alt = 12;  // Altitude in meters
   double pow = 13;
-  double time = 14; // Use google.protobuf.DoubleValue for optional if needed
+  optional double time = 14;  // This is truly optional
 }
 
 message Position {
@@ -39,10 +39,10 @@ message Simulation {
 
 message SimulationResult {
   uint32 target_id = 1;
-  repeated double time = 2;
-  repeated Position waypoints = 3;
-  double run_time = 4;
-  repeated F16State final_state = 5;
+  // repeated double time = 2;
+  repeated Position waypoints = 2;
+  double run_time = 3;
+  repeated F16State final_state = 4;
 }
 
 message SimulationResultList {

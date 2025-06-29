@@ -3,6 +3,7 @@ mod commands_async;
 mod general;
 mod logger;
 mod packet;
+pub mod simulation;
 mod serial;
 mod zmq;
 mod zmq_server_tokio;
@@ -16,6 +17,7 @@ use general::{
         list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
     },
     serial::SerialManager,
+    simulation_commands::{simulation, get_simulation_data, SimulationDataState ,clear_simulation_data},
 };
 
 #[tokio::main]
@@ -26,6 +28,7 @@ async fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(SerialManager::default())
         .manage(AppState::default())
+        .manage(SimulationDataState::default())
         .invoke_handler(tauri::generate_handler![
             init_zmq,
             add_sub,
@@ -43,9 +46,11 @@ async fn main() {
             send_data,
             // Add the new share commands
             general::commands::start_share,
-            general::commands::simulation,
-            general::commands::ping,
+
             general::commands::stop_share,
+            simulation,
+            get_simulation_data,
+            clear_simulation_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { simulation } from "@/lib/serial";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+// @ts-ignore
+import { invoke } from "@tauri-apps/api/tauri";
+import type { Simulation } from "@/gen/simulation";
+import { simulation } from "@/lib/serial";
 
 export default function SimulationRunner() {
   const [input, setInput] = useState(`{
@@ -64,7 +67,8 @@ export default function SimulationRunner() {
   const runSimulation = async () => {
     setLoading(true);
     try {
-      const result = await simulation(input);
+      const sim: Simulation = JSON.parse(input);
+      const result = await simulation(sim);
       setOutput(result);
     } catch (e) {
       setOutput("Error: " + String(e));

@@ -8,8 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "tauri": "tauri",
-    "gen:proto": "protoc --plugin=protoc-gen-ts=.\\node_modules\\.bin\\protoc-gen-ts_proto.cmd --ts_out=src/gen --proto_path=proto proto/*.proto",
-    "gen-linux:proto": "protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts_proto --ts_out=src/gen --proto_path=proto proto/*.proto"
+    "gen:proto": "protoc --plugin=protoc-gen-ts=.\\node_modules\\.bin\\protoc-gen-ts_proto.cmd --ts_out=src/gen --ts_opt=snakeToCamel=false --proto_path=proto proto/*.proto",
+    "gen-linux:proto": "protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts_proto --ts_out=src/gen --ts_opt=snakeToCamel=false --proto_path=proto proto/*.proto"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.4.0",
@@ -88,9 +88,11 @@
     "ts-proto": "^2.7.0",
     "ts-protoc-gen": "^0.15.0",
     "vaul": "^1.1.2",
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+      "react-leaflet": "5.0.0-rc.2"
   },
   "devDependencies": {
+      "@types/leaflet": "^1.9.18",
     "@bufbuild/buf": "^1.54.0",
     "@bufbuild/protoc-gen-es": "^2.4.0",
     "@eslint/eslintrc": "^3",
