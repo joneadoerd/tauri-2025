@@ -23,7 +23,7 @@ pub async fn simulation(
     let output = sidecar_command.output().await.unwrap();
     let b64 = String::from_utf8(output.stdout).unwrap();
     let buffer = general_purpose::STANDARD.decode(b64.trim()).unwrap();
-
+    eprintln!("[DEBUG] Decoded bytes: {}", buffer.len());
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }

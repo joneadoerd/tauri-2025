@@ -21,6 +21,7 @@ export function useSimulationTargets(fetchSimulationData: FetchSimulationData, i
  const load = async () => {
   try {
     const data = await fetchSimulationData();
+    console.log("Loaded simulation data:", data);
     if (!data?.results) return;
     setTargets(data.results);
     const steps = data.results.map((target) => {

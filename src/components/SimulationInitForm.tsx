@@ -27,7 +27,10 @@ interface MapClickHandlerProps {
   activeTargetIndex: number | null;
 }
 
-function MapClickHandler({ onMapClick, activeTargetIndex }: MapClickHandlerProps) {
+function MapClickHandler({
+  onMapClick,
+  activeTargetIndex,
+}: MapClickHandlerProps) {
   useMapEvents({
     click: (e) => {
       if (activeTargetIndex !== null) {
@@ -39,19 +42,19 @@ function MapClickHandler({ onMapClick, activeTargetIndex }: MapClickHandlerProps
 }
 function defaultF16State(): F16State {
   return {
-    vt: 164.592,
-    alpha: 0.037025,
-    beta: 0,
-    phi: 0,
+    vt: 500.0,
+    alpha: 0.037027160081059704,
+    beta: 0.0,
+    phi: 0.0,
     theta: 0,
-    psi: 0.392699,
-    p: 0,
-    q: 0,
-    r: 0,
-    lat: 37.7749,
-    lon: -122.4194,
-    alt: 1158.24,
-    pow: 9,
+    psi: 0.39269908169872414,
+    p: 0.0,
+    q: 0.0,
+    r: 0.0,
+    lat: 32.9965,
+    lon: -80.7238,
+    alt: 50.0,
+    pow: 9.0,
   };
 }
 
@@ -60,10 +63,26 @@ function defaultTarget(id: number): Target {
     id,
     init_state: defaultF16State(),
     waypoints: [
-      { lat: 37.775, lon: -122.4194, alt: 1219.2 },
-      { lat: 37.7755, lon: -122.419, alt: 1188.72 },
-      { lat: 37.7745, lon: -122.4185, alt: 1143.0 },
-      { lat: 37.7742, lon: -122.418, alt: 91.44 },
+      {
+        lat: 32.9775,
+        lon: -80.6138,
+        alt: 100.0,
+      },
+      {
+        lat: 32.8912,
+        lon: -80.5734,
+        alt: 300.0,
+      },
+      {
+        lat: 32.7421,
+        lon: -80.4231,
+        alt: 400.0,
+      },
+      {
+        lat: 32.7362,
+        lon: -80.3231,
+        alt: 500.0,
+      },
     ],
   };
 }
@@ -74,8 +93,8 @@ export function SimulationInitForm({
   onSubmit: (sim: Simulation) => void;
 }) {
   const [targets, setTargets] = useState<Target[]>([defaultTarget(1)]);
-  const [timeStep, setTimeStep] = useState(0.01);
-  const [maxTime, setMaxTime] = useState(75);
+  const [timeStep, setTimeStep] = useState(0.1);
+  const [maxTime, setMaxTime] = useState(300);
   const [selectedWaypoint, setSelectedWaypoint] = useState<{
     tidx: number;
     widx: number;
@@ -122,8 +141,9 @@ export function SimulationInitForm({
     );
   };
 
-  const addTarget = () => setTargets((ts) => [...ts, defaultTarget(ts.length + 1)]);
-  
+  const addTarget = () =>
+    setTargets((ts) => [...ts, defaultTarget(ts.length + 1)]);
+
   const removeTarget = (tidx: number) => {
     setTargets((ts) => ts.filter((_, i) => i !== tidx));
   };
@@ -257,7 +277,7 @@ export function SimulationInitForm({
                   Add Waypoint
                 </Button>
               </div>
-              
+
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -355,15 +375,27 @@ export function SimulationInitForm({
             <div className="space-y-2">
               <div>
                 <span className="font-medium">Latitude: </span>
-                {targets[selectedWaypoint.tidx].waypoints[selectedWaypoint.widx].lat}
+                {
+                  targets[selectedWaypoint.tidx].waypoints[
+                    selectedWaypoint.widx
+                  ].lat
+                }
               </div>
               <div>
                 <span className="font-medium">Longitude: </span>
-                {targets[selectedWaypoint.tidx].waypoints[selectedWaypoint.widx].lon}
+                {
+                  targets[selectedWaypoint.tidx].waypoints[
+                    selectedWaypoint.widx
+                  ].lon
+                }
               </div>
               <div>
                 <span className="font-medium">Altitude: </span>
-                {targets[selectedWaypoint.tidx].waypoints[selectedWaypoint.widx].alt}
+                {
+                  targets[selectedWaypoint.tidx].waypoints[
+                    selectedWaypoint.widx
+                  ].alt
+                }
               </div>
             </div>
           )}

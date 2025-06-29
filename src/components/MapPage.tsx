@@ -49,6 +49,7 @@ export default function MapPage({
   onSimulationComplete,
 }: MapPageProps) {
   const [showPathMode, setShowPathMode] = useState(true);
+  const [frameInterval, setFrameInterval] = useState(10); // ms per frame
   const {
     positions: simPositions,
     start,
@@ -66,7 +67,7 @@ export default function MapPage({
       simResultAvailable
         ? await invoke<SimulationResultList>("get_simulation_data")
         : { results: [] },
-    10, // 1s per frame
+    frameInterval,
     showPathMode
   );
 
@@ -172,6 +173,19 @@ export default function MapPage({
 
   return (
     <div className="relative h-screen w-screen">
+      <div className="absolute top-4 right-4 z-[1000] bg-white p-2 rounded shadow-lg flex items-center gap-2">
+        <label htmlFor="frameInterval" className="text-xs font-medium">Frame Interval (ms):</label>
+        <input
+          id="frameInterval"
+          type="number"
+          min={10}
+          step={10}
+          value={frameInterval}
+          onChange={e => setFrameInterval(Number(e.target.value))}
+          className="border rounded px-1 py-0.5 w-20 text-xs"
+        />
+      </div>
+
       {simRunning && (
         <div className="absolute top-4 left-4 z-[1000] bg-white p-2 rounded shadow-lg">
           Simulation Progress: {simulationProgress}%
@@ -187,6 +201,7 @@ export default function MapPage({
         doubleClickZoom={true}
         scrollWheelZoom={true}
         touchZoom={true}
+        
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
