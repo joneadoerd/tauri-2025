@@ -94,7 +94,7 @@ export function SimulationInitForm({
 }) {
   const [targets, setTargets] = useState<Target[]>([defaultTarget(1)]);
   const [timeStep, setTimeStep] = useState(0.1);
-  const [maxTime, setMaxTime] = useState(300);
+  const [maxTime, setMaxTime] = useState(400);
   const [selectedWaypoint, setSelectedWaypoint] = useState<{
     tidx: number;
     widx: number;

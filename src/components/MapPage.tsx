@@ -7,29 +7,13 @@ import {
   Polyline,
   Popup,
 } from "react-leaflet";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Scan } from "lucide-react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { Button } from "@/components/ui/button";
-import ControlledMarker from "./ControlledMarker";
+
 import { useSimulationTargets } from "@/hooks/useSimulationTargets";
 import { invoke } from "@tauri-apps/api/core";
-import type {
-  SimulationResultList,
-  SimulationResult,
-  Position,
-} from "@/gen/simulation";
+import type { SimulationResultList } from "@/gen/simulation";
 import React, { useRef, useEffect, useState } from "react";
-
-const makeIcon = (color: string) =>
-  new L.DivIcon({
-    html: `<div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;">
-      ${renderToStaticMarkup(<Scan size={28} color={color} />)}
-    </div>`,
-    className: "custom-scan-marker",
-    iconSize: [32, 32],
-  });
+import { SimulationMarkers } from "./SimulationMarkers";
 
 interface MapPageProps {
   showPath?: boolean;
@@ -146,7 +130,7 @@ export default function MapPage({
   useEffect(() => {
     if (simRunning && simResultAvailable) {
       setShowPathMode(false);
-      load();
+      // load();
       start();
     } else if (!simRunning) {
       stop();
@@ -157,7 +141,7 @@ export default function MapPage({
   useEffect(() => {
     if (resetFlag && simResultAvailable) {
       setShowPathMode(true);
-      load();
+      // load();
       stop();
       reset();
     }
@@ -174,14 +158,16 @@ export default function MapPage({
   return (
     <div className="relative h-screen w-screen">
       <div className="absolute top-4 right-4 z-[1000] bg-white p-2 rounded shadow-lg flex items-center gap-2">
-        <label htmlFor="frameInterval" className="text-xs font-medium">Frame Interval (ms):</label>
+        <label htmlFor="frameInterval" className="text-xs font-medium">
+          Frame Interval (ms):
+        </label>
         <input
           id="frameInterval"
           type="number"
           min={10}
           step={10}
           value={frameInterval}
-          onChange={e => setFrameInterval(Number(e.target.value))}
+          onChange={(e) => setFrameInterval(Number(e.target.value))}
           className="border rounded px-1 py-0.5 w-20 text-xs"
         />
       </div>
@@ -201,7 +187,6 @@ export default function MapPage({
         doubleClickZoom={true}
         scrollWheelZoom={true}
         touchZoom={true}
-        
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -217,7 +202,7 @@ export default function MapPage({
                 color: idx === 0 ? "#007bff" : "#ff0000",
                 weight: 2,
                 opacity: 0.7,
-                dashArray: showPath ? undefined : "5, 5", // Dashed during animation
+                dashArray: !simRunning ? undefined : "5, 5", // Dashed during animation
               }}
             />
           ))}
@@ -248,35 +233,12 @@ export default function MapPage({
           )}
         {/* Animated aircraft markers */}
         // Modify the markers rendering section:
-        {simResultAvailable &&
-          simPositions.map((pos, idx) => {
-            const key = `${pos.id}-${pos.time}`;
-            return (
-              <ControlledMarker
-                key={key}
-                position={[pos.lat, pos.lon]}
-                icon={makeIcon(idx === 0 ? "#007bff" : "#ff0000")}
-              >
-                <Popup
-                  autoClose={false}
-                  closeOnClick={false}
-                  closeOnEscapeKey={false}
-                  className="permanent-popup"
-                >
-                  <div className="space-y-1">
-                    <div className="font-bold">Target {pos.id}</div>
-                    <div>Time: {pos.time.toFixed(1)}s</div>
-                    <div>Lat: {pos.lat.toFixed(6)}</div>
-                    <div>Lon: {pos.lon.toFixed(6)}</div>
-                    <div>Alt: {pos.alt.toFixed(1)}m</div>
-                    <div>
-                      Progress: {Math.round((currentStep / totalSteps) * 100)}%
-                    </div>
-                  </div>
-                </Popup>
-              </ControlledMarker>
-            );
-          })}
+        <SimulationMarkers
+          simPositions={simPositions}
+          simResultAvailable={simResultAvailable}
+          currentStep={currentStep}
+          totalSteps={totalSteps}
+        />
       </MapContainer>
     </div>
   );

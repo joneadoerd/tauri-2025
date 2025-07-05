@@ -109,7 +109,7 @@ export default function SimulationMapView() {
           <Button
             onClick={handleReset}
             className="bg-purple-600 hover:bg-purple-700 text-white"
-            disabled={!simResultAvailable}
+            disabled={!simResultAvailable || simRunning}
           >
             Reset
           </Button>
