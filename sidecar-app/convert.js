@@ -9,6 +9,6 @@ if (!targetTriple) {
   console.error('Failed to determine platform target triple');
 }
 fs.renameSync(
-  `ping${ext}`,
-  `../src-tauri/binaries/ping-${targetTriple}${ext}`
+  `sim${ext}`,
+  `../src-tauri/binaries/sim-${targetTriple}${ext}`
 );
