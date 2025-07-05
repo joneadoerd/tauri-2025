@@ -21,7 +21,7 @@ fn main() {
 
     // Apply serde attributes to all types
     config.type_attribute(".", "#[derive(::serde::Serialize, ::serde::Deserialize)]");
-
+    config.protoc_arg("--experimental_allow_proto3_optional");
     // Enable support for optional fields using wrappers.proto
     config.compile_well_known_types();
 
