@@ -5,10 +5,11 @@ import SerialTab from "./SerialTab";
 import SerialTabGeneral from "./SerialTabGeneral";
 import SimulationRunner from "./SimulationRunner";
 import SimulationMapView from "./simulation-map";
+import SimulationStreamingDemo from "./SimulationStreamingDemo";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "zmq" | "serial" | "serial-general" | "simulation" | "simulation-map"
+    "zmq" | "serial" | "serial-general" | "SimulationStreamingDemo" | "simulation-map"
   >("serial");
 
   return (
@@ -44,13 +45,13 @@ export default function App() {
         </button>
         <button
           className={`px-4 py-2 rounded ${
-            activeTab === "simulation"
+            activeTab === "SimulationStreamingDemo"
               ? "bg-blue-500 text-white"
               : "bg-white border"
           }`}
-          onClick={() => setActiveTab("simulation")}
+          onClick={() => setActiveTab("SimulationStreamingDemo")}
         >
-          Simulation
+          SimulationStreamingDemo
         </button>
         <button
           className={`px-4 py-2 rounded ${
@@ -73,8 +74,8 @@ export default function App() {
         <div hidden={activeTab !== "serial-general"}>
           <SerialTabGeneral />
         </div>
-        <div hidden={activeTab !== "simulation"}>
-          <SimulationRunner />
+        <div hidden={activeTab !== "SimulationStreamingDemo"}>
+          <SimulationStreamingDemo />
         </div>
         <div hidden={activeTab !== "simulation-map"}>
           <SimulationMapView />

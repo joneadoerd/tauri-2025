@@ -3,13 +3,14 @@ use crate::{
     packet::{PacketChecksum, PacketHeader},
 };
 use std::str::FromStr;
+use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use super::{serial::SerialManager, start_dynamic_packet, PacketWrapper};
 
 #[tauri::command]
 pub async fn start_connection(
-    state: State<'_, SerialManager>,
+    state: State<'_, Arc<SerialManager>>,
     id: String,
     port: String,
     baud: u32,
@@ -28,7 +29,7 @@ pub async fn start_connection(
 
 #[tauri::command]
 pub async fn send_packet(
-    state: State<'_, SerialManager>,
+    state: State<'_, Arc<SerialManager>>,
     id: String,
     wrapper_json: String, // JSON string passed from UI
 ) -> Result<(), String> {
@@ -38,7 +39,7 @@ pub async fn send_packet(
 }
 
 #[tauri::command]
-pub async fn stop_connection(state: State<'_, SerialManager>, id: String) -> Result<(), String> {
+pub async fn stop_connection(state: State<'_, Arc<SerialManager>>, id: String) -> Result<(), String> {
     state.stop(&id).await;
     Ok(())
 }
@@ -50,14 +51,14 @@ pub fn list_serial_ports() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn list_connections(
-    state: State<'_, SerialManager>,
+    state: State<'_, Arc<SerialManager>>,
 ) -> Result<Vec<SerialConnectionInfo>, String> {
     Ok(state.list_connections().await)
 }
 
 #[tauri::command]
 pub async fn start_share(
-    state: State<'_, SerialManager>,
+    state: State<'_, Arc<SerialManager>>,
     from_id: String,
     to_id: String,
 ) -> Result<(), String> {
@@ -65,7 +66,7 @@ pub async fn start_share(
 }
 
 #[tauri::command]
-pub async fn stop_share(state: State<'_, SerialManager>) -> Result<(), String> {
+pub async fn stop_share(state: State<'_, Arc<SerialManager>>) -> Result<(), String> {
     state.stop_share().await;
     Ok(())
 }

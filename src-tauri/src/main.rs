@@ -9,7 +9,7 @@ mod simulation_state;
 mod zmq;
 mod zmq_server_tokio;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use commands_async::{
     add_sub, disconnect, init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
@@ -23,25 +23,40 @@ use general::{
     simulation_commands::{
         clear_simulation_data, get_simulation_data, simulation, SimulationDataState,
     },
+    simulation_streaming::{
+        check_simulation_data_available, get_active_simulation_streams,
+        get_available_simulation_connections, get_available_simulation_targets,
+        start_simulation_streaming, stop_simulation_streaming, stop_target_stream,
+        SimulationStreamer,
+    },
 };
+use tokio::sync::Mutex;
 
 use crate::simulation_state::command::{
-    stop_simulation_timer, start_simulation_timer, SimTimerState,reset_simulation_timer
+    reset_simulation_timer, start_simulation_timer, stop_simulation_timer, SimTimerState,
 };
 
 #[tokio::main]
 async fn main() {
     logger::init_logging(); // initialize file logging
                             // console_subscriber::init(); // starts the Tokio console layer
+
+    // Create serial manager and simulation streamer
+    let serial_manager = Arc::new(SerialManager::default());
+    let simulation_streamer = Arc::new(SimulationStreamer::new(serial_manager.clone()));
+
+    // Create AppState with the same serial manager
+
     tauri::Builder::default()
-        .manage(Arc::new(Mutex::new(SimTimerState {
+        .plugin(tauri_plugin_shell::init())
+        .manage(Arc::new(std::sync::Mutex::new(SimTimerState {
             handle: None,
             current_step: 0,
             running: false,
             total_steps: 0,
         })))
-        .plugin(tauri_plugin_shell::init())
-        .manage(SerialManager::default())
+        .manage(serial_manager)
+        .manage(simulation_streamer)
         .manage(AppState::default())
         .manage(SimulationDataState::default())
         .invoke_handler(tauri::generate_handler![
@@ -67,7 +82,15 @@ async fn main() {
             clear_simulation_data,
             start_simulation_timer,
             stop_simulation_timer,
-            reset_simulation_timer
+            reset_simulation_timer,
+            // Add simulation streaming commands
+            start_simulation_streaming,
+            stop_simulation_streaming,
+            stop_target_stream,
+            get_active_simulation_streams,
+            get_available_simulation_connections,
+            get_available_simulation_targets,
+            check_simulation_data_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

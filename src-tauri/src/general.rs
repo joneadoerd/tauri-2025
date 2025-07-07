@@ -2,7 +2,9 @@ pub mod commands;
 pub mod serial;
 pub mod timer_res;
 pub mod simulation_commands;
+pub mod simulation_streaming;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -44,7 +46,7 @@ impl PacketWrapper {
 }
 
 pub async fn start_dynamic_packet<T>(
-    state: &SerialManager,
+    state: &Arc<SerialManager>,
     id: String,
     port: String,
     baud: u32,
