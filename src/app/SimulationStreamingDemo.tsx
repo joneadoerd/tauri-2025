@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { checkSimulationDataAvailable } from "@/lib/simulation-streaming";
 import type { SimulationResultList } from "@/gen/simulation";
 import { listen } from "@tauri-apps/api/event";
+import { SensorStreamingControl } from "@/components/SensorStreamingControl";
 
 interface SimulationStreamUpdate {
   target_id: number;
@@ -100,10 +101,19 @@ export default function SimulationStreamingDemo() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [dataSource, setDataSource] = useState("Simulation");
+  const [dataSource, setDataSource] = useState("Sensor");
+  const [targetLiveData, setTargetLiveData] = useState<Record<number, any>>({});
 
   const { targets, log } = useSimulationStream();
   const { clients: udpClients, loading: udpLoading, refresh: refreshUdp } = useUdpSensorClients();
+
+  useEffect(() => {
+    const unlisten = listen("target_sensor_data", (event) => {
+      const data = event.payload as any;
+      setTargetLiveData(prev => ({ ...prev, [data.target_id]: data }));
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
 
   // Load simulation data
   const loadSimulationData = async () => {
@@ -288,6 +298,19 @@ export default function SimulationStreamingDemo() {
               </li>
             </ol>
 
+            <h4>UDP Sensor Client Mapping & Health-Check:</h4>
+            <ol className="list-decimal list-inside space-y-2">
+              <li>
+                <strong>Send Health-Check Command:</strong> The server sends a <code>check-health</code> command to a UDP client. The client responds with its health and test temperature data.
+              </li>
+              <li>
+                <strong>Map UDP Clients:</strong> You can map a UDP sensor client (target) to a new UDP client for receiving real-time data. This mapping is managed in the UI.
+              </li>
+              <li>
+                <strong>Display Real-Time Data:</strong> Once mapped, the server receives and displays real-time data (position, temperature, etc.) from the mapped UDP client in the UI.
+              </li>
+            </ol>
+
             <h4>Data Format:</h4>
             <p>
               Position data is encoded as Protocol Buffer messages containing:
@@ -302,8 +325,9 @@ export default function SimulationStreamingDemo() {
             <ul className="list-disc list-inside space-y-1">
               <li>Multiple concurrent streams (one per target-connection pair)</li>
               <li>Configurable update intervals per stream</li>
-              <li>Real-time position data streaming</li>
+              <li>Real-time position and sensor data streaming</li>
               <li>Individual stream control (start/stop specific streams)</li>
+              <li>UDP client health-check and mapping</li>
               <li>Error handling and validation</li>
             </ul>
           </div>
@@ -320,6 +344,12 @@ export default function SimulationStreamingDemo() {
         availableTargets={availableTargets}
         disableInterval={dataSource === "Sensor"}
       />
+
+      {dataSource === "Sensor" && (
+        <div className="my-4">
+          <SensorStreamingControl udpClients={udpClients} availableTargets={availableTargets} />
+        </div>
+      )}
 
       {/* Usage Example */}
       <Card>
@@ -360,11 +390,11 @@ await startSimulationStreaming(request);`}
             <CardContent>
               <div className="relative h-64 bg-gray-100 rounded flex items-center justify-center">
                 {dataSource === "Sensor" ? (
-                  udpClients.length === 0 ? (
+                  udpClients.filter(t => availableTargets.includes(t.sensor_id)).length === 0 ? (
                     <span className="text-muted-foreground">No active sensor targets</span>
                   ) : (
                     <ul className="space-y-2">
-                      {udpClients.map((t) => (
+                      {udpClients.filter(t => availableTargets.includes(t.sensor_id)).map((t) => (
                         <li key={t.sensor_id} className="flex items-center gap-2">
                           <span className="font-bold">Sensor {t.sensor_id}</span>
                           <span>Status: <span className="text-green-600">Online</span></span>
@@ -405,11 +435,11 @@ await startSimulationStreaming(request);`}
             </CardHeader>
             <CardContent>
               {dataSource === "Sensor" ? (
-                udpClients.length === 0 ? (
+                udpClients.filter(t => availableTargets.includes(t.sensor_id)).length === 0 ? (
                   <span className="text-muted-foreground">No active sensor targets</span>
                 ) : (
                   <ul className="space-y-3">
-                    {udpClients.map((t) => (
+                    {udpClients.filter(t => availableTargets.includes(t.sensor_id)).map((t) => (
                       <li key={t.sensor_id} className="border rounded p-2">
                         <div className="font-semibold">Sensor {t.sensor_id}</div>
                         <div>Status: <span className="text-green-600">Online</span></div>

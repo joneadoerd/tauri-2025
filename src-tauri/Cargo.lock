@@ -231,6 +231,7 @@ dependencies = [
  "derivative",
  "futures",
  "jord",
+ "lazy_static",
  "log",
  "once_cell",
  "prost 0.13.5",

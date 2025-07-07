@@ -4,15 +4,25 @@ use crate::general::simulation_commands::SimulationDataState;
 use crate::simulation::{Position, SimulationResultList};
 use crate::SENSOR_MAP;
 use base64;
+use once_cell::sync::Lazy;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{error, info};
+
+pub struct ForwardingChannel {
+    pub sender: mpsc::Sender<SensorData>,
+    pub handle: tokio::task::JoinHandle<()>,
+}
+pub type ForwardingMap = Arc<Mutex<HashMap<u32, ForwardingChannel>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetPosition {
@@ -119,14 +129,7 @@ pub struct SimulationStreamer {
 
 impl SimulationStreamer {
     pub fn new(serial_manager: Arc<SerialManager>) -> Self {
-        let _sensor_map = SENSOR_MAP.get_or_init(|| async {
-            let map = SharedSensorMap::default();
-            let map_clone = map.clone();
-            tokio::spawn(async move {
-                start_udp_server(map_clone).await;
-            });
-            map
-        });
+        // UDP server is started in main.rs, so no need to start it here.
         Self {
             serial_manager,
             active_streams: Arc::new(Mutex::new(HashMap::new())),
@@ -512,6 +515,109 @@ pub async fn get_active_sensor_streams(
     Ok(sensor_streamer.get_active_streams().await)
 }
 
+#[tauri::command]
+pub async fn send_sensor_command(
+    sensor_id: u32,
+    command: String,
+    udp_socket: tauri::State<'_, Arc<tokio::net::UdpSocket>>,
+    client_addr_map: tauri::State<'_, crate::general::sensor_udp_server::SharedClientAddrMap>,
+) -> Result<String, String> {
+    crate::general::sensor_udp_server::send_command_to_sensor(
+        udp_socket.inner().clone(),
+        client_addr_map.inner().clone(),
+        sensor_id,
+        &command,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn map_udp_sensor_target(
+    sensor_id: u32,
+    target_id: u32,
+    udp_socket: tauri::State<'_, Arc<tokio::net::UdpSocket>>,
+    client_addr_map: tauri::State<'_, crate::general::sensor_udp_server::SharedClientAddrMap>,
+) -> Result<(), String> {
+    let addr = {
+        let map = client_addr_map.lock().await;
+        map.get(&sensor_id).cloned()
+    };
+    let addr = addr.ok_or("Sensor client not found")?;
+    // let msg = format!("map:{}", target_id);
+    // udp_socket.send_to(msg.as_bytes(), addr).await.map_err(|e| e.to_string())?;
+    // Update backend mapping
+    TARGET_SENSOR_MAP.lock().await.insert(target_id, sensor_id);
+
+    // Spawn forwarding task
+    let udp_socket = udp_socket.inner().clone();
+
+    let (sender, mut receiver) = mpsc::channel(100); // Create a channel for data
+    let handle = tokio::spawn(async move {
+        loop {
+            let data: SensorData = receiver.recv().await.unwrap(); // Explicit type annotation
+            let msg = format!(
+                "{},{},{},{},{}",
+                target_id, data.lat, data.lon, data.alt, data.temp
+            );
+            println!("{:?}", msg);
+            let _ = udp_socket.send_to(msg.as_bytes(), addr).await;
+        }
+    });
+    let channel = ForwardingChannel { sender, handle };
+    crate::general::sensor_udp_server::FORWARDING_TASKS
+        .lock()
+        .await
+        .insert(target_id, channel);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unmap_udp_sensor_target(
+    sensor_id: u32,
+    udp_socket: tauri::State<'_, Arc<tokio::net::UdpSocket>>,
+    client_addr_map: tauri::State<'_, crate::general::sensor_udp_server::SharedClientAddrMap>,
+) -> Result<(), String> {
+    let addr = {
+        let map = client_addr_map.lock().await;
+        map.get(&sensor_id).cloned()
+    };
+    let addr = addr.ok_or("Sensor client not found")?;
+    let msg = "unmap";
+    udp_socket
+        .send_to(msg.as_bytes(), addr)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Remove all mappings for this sensor
+    let mut map = TARGET_SENSOR_MAP.lock().await;
+    let targets: Vec<u32> = map
+        .iter()
+        .filter_map(|(&t, &s)| if s == sensor_id { Some(t) } else { None })
+        .collect();
+    for target_id in &targets {
+        if let Some(channel) = crate::general::sensor_udp_server::FORWARDING_TASKS
+            .lock()
+            .await
+            .remove(target_id)
+        {
+            channel.handle.abort();
+        }
+        map.remove(target_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_target_udp_addr(target_id: u32, addr: String) -> Result<(), String> {
+    use crate::general::sensor_udp_server::TARGET_UDP_ADDR_MAP;
+    use std::net::SocketAddr;
+    let addr: SocketAddr = addr
+        .parse()
+        .map_err(|e| format!("Invalid address: {}", e))?;
+    TARGET_UDP_ADDR_MAP.lock().await.insert(target_id, addr);
+    Ok(())
+}
+
 // --- API Documentation ---
 // start_sensor_streaming(SensorStreamRequest) - Start streaming UDP sensor data to serial
 // stop_sensor_streaming() - Stop all sensor streams
@@ -593,3 +699,6 @@ pub async fn get_udp_sensor_clients() -> Result<Vec<SensorData>, String> {
         .clone();
     Ok(crate::general::sensor_udp_server::get_udp_sensor_clients(map).await)
 }
+
+pub static TARGET_SENSOR_MAP: Lazy<Arc<Mutex<HashMap<u32, u32>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
