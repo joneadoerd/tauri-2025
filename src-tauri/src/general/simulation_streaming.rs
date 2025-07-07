@@ -1,16 +1,18 @@
+use crate::general::sensor_udp_server::{start_udp_server, SensorData, SharedSensorMap};
 use crate::general::serial::SerialManager;
 use crate::general::simulation_commands::SimulationDataState;
-use crate::simulation::{F16State, Position, SimulationResultList};
+use crate::simulation::{Position, SimulationResultList};
+use crate::SENSOR_MAP;
+use base64;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tauri::Emitter;
 use tokio::sync::Mutex;
 use tokio::time;
-use tracing::{error, info, warn};
-use tauri::{Emitter, Manager};
-use base64;
+use tracing::{error, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetPosition {
@@ -29,10 +31,85 @@ pub struct SimulationStreamConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DataSourceType {
+    Simulation,
+    Sensor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationStreamRequest {
     pub simulation_data: SimulationResultList,
     pub stream_configs: Vec<SimulationStreamConfig>,
     pub stream_interval_ms: u64,
+    pub data_source: DataSourceType,
+}
+
+pub trait TargetDataSource: Send + Sync {
+    fn get_next(&mut self, target_id: u32) -> Option<Position>;
+}
+
+pub struct SimulationDataSource {
+    target_result: Option<crate::simulation::SimulationResult>,
+    current_step: usize,
+}
+
+impl SimulationDataSource {
+    pub fn new(simulation_data: &SimulationResultList, target_id: u32) -> Self {
+        let target_result = simulation_data
+            .results
+            .iter()
+            .find(|r| r.target_id == target_id)
+            .cloned();
+        Self {
+            target_result,
+            current_step: 0,
+        }
+    }
+}
+
+impl TargetDataSource for SimulationDataSource {
+    fn get_next(&mut self, _target_id: u32) -> Option<Position> {
+        if let Some(ref result) = self.target_result {
+            if self.current_step < result.final_state.len() {
+                let state = &result.final_state[self.current_step];
+                self.current_step += 1;
+                Some(Position {
+                    lat: state.lat,
+                    lon: state.lon,
+                    alt: state.alt,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+pub struct SensorDataSource {
+    sensor_id: u32,
+    sensor_map: SharedSensorMap,
+}
+
+impl SensorDataSource {
+    pub fn new(sensor_id: u32, sensor_map: SharedSensorMap) -> Self {
+        Self {
+            sensor_id,
+            sensor_map,
+        }
+    }
+}
+
+impl TargetDataSource for SensorDataSource {
+    fn get_next(&mut self, _target_id: u32) -> Option<Position> {
+        let map = self.sensor_map.blocking_lock();
+        map.get(&self.sensor_id).map(|data| Position {
+            lat: data.lat,
+            lon: data.lon,
+            alt: data.alt,
+        })
+    }
 }
 
 pub struct SimulationStreamer {
@@ -42,6 +119,14 @@ pub struct SimulationStreamer {
 
 impl SimulationStreamer {
     pub fn new(serial_manager: Arc<SerialManager>) -> Self {
+        let _sensor_map = SENSOR_MAP.get_or_init(|| async {
+            let map = SharedSensorMap::default();
+            let map_clone = map.clone();
+            tokio::spawn(async move {
+                start_udp_server(map_clone).await;
+            });
+            map
+        });
         Self {
             serial_manager,
             active_streams: Arc::new(Mutex::new(HashMap::new())),
@@ -61,41 +146,43 @@ impl SimulationStreamer {
         // Validate the request
         self.validate_stream_request(&request).await?;
 
-        let stream_interval = Duration::from_millis(request.stream_interval_ms);
         let config_count = request.stream_configs.len();
-
-        // Create a shared state for the simulation data
-        let simulation_data = Arc::new(request.simulation_data);
         let serial_manager = self.serial_manager.clone();
         let active_streams = self.active_streams.clone();
+        let simulation_data = Arc::new(request.simulation_data.clone());
 
         // Start a stream for each target-connection configuration
         for config in request.stream_configs {
             let target_id = config.target_id;
             let connection_id = config.serial_connection_id.clone();
             let interval_ms = config.stream_interval_ms;
-
-            // Clone the data for this stream
-            let sim_data = simulation_data.clone();
             let serial_mgr = serial_manager.clone();
             let streams = active_streams.clone();
             let connection_id_handle = connection_id.clone();
             let app_handle = app_handle.clone();
+            // Choose data source
+            let sensor_map = SENSOR_MAP
+                .get()
+                .expect("Sensor map not initialized")
+                .clone();
 
-            // Spawn a task for this target-connection pair
+            let data_source: Box<dyn TargetDataSource> = match request.data_source {
+                DataSourceType::Simulation => {
+                    Box::new(SimulationDataSource::new(&simulation_data, target_id))
+                }
+                DataSourceType::Sensor => Box::new(SensorDataSource::new(target_id, sensor_map)),
+            };
             let task_handle = tokio::spawn(async move {
                 Self::stream_target_to_connection(
                     app_handle,
                     target_id,
                     connection_id_handle.clone(),
-                    sim_data,
+                    data_source,
                     serial_mgr,
                     interval_ms,
                 )
                 .await;
             });
-
-            // Store the task handle
             let mut streams_guard = streams.lock().await;
             let stream_key = format!("{}_{}", target_id, connection_id.clone());
             streams_guard.insert(stream_key, task_handle);
@@ -113,7 +200,7 @@ impl SimulationStreamer {
         app_handle: tauri::AppHandle,
         target_id: u32,
         connection_id: String,
-        simulation_data: Arc<SimulationResultList>,
+        mut data_source: Box<dyn TargetDataSource>,
         serial_manager: Arc<SerialManager>,
         interval_ms: u64,
     ) {
@@ -122,91 +209,49 @@ impl SimulationStreamer {
             target_id, connection_id
         );
 
-        // Find the target data
-        let target_data = simulation_data
-            .results
-            .iter()
-            .find(|result| result.target_id == target_id);
+        let interval = Duration::from_millis(interval_ms);
+        let mut next_wake = time::Instant::now();
+        let mut step = 0;
 
-        if let Some(target_result) = target_data {
-            let mut current_step = 0;
-            let total_steps = target_result.final_state.len();
-
-            if total_steps == 0 {
-                error!("No simulation data for target {}", target_id);
-                return;
-            }
-
-            let interval = Duration::from_millis(interval_ms);
-            let mut next_wake = time::Instant::now();
-
-            loop {
-                // Update next wake time
-                next_wake += interval;
-
-                // Get current position data
-                if current_step < total_steps {
-                    let state = &target_result.final_state[current_step];
-
-                    // Create position message
-                    let position = Position {
-                        lat: state.lat,
-                        lon: state.lon,
-                        alt: state.alt,
-                    };
-
-                    // Encode and send the position data
-                    let mut buf = Vec::new();
-                    if let Ok(()) = position.encode(&mut buf) {
-                        if let Err(e) = serial_manager.send_raw(&connection_id, buf.clone()).await {
-                            error!("Failed to send position data to {}: {}", connection_id, e);
-                            break;
-                        }
-
-                        info!(
-                            "Sent position for target {} step {}/{} to {}: lat={:.6}, lon={:.6}, alt={:.1}",
-                            target_id, current_step + 1, total_steps, connection_id,
-                            state.lat, state.lon, state.alt
-                        );
-
-                        // Emit Tauri event to frontend
-                        let event_payload = serde_json::json!({
-                            "target_id": target_id,
-                            "connection_id": connection_id,
-                            "position": {
-                                "lat": state.lat,
-                                "lon": state.lon,
-                                "alt": state.alt,
-                            },
-                            "step": current_step + 1,
-                            "total_steps": total_steps,
-                            "raw_data": base64::encode(&buf),
-                        });
-                        let _ = app_handle.emit("simulation_stream_update", event_payload);
-                    } else {
-                        error!("Failed to encode position data for target {}", target_id);
+        loop {
+            next_wake += interval;
+            if let Some(position) = data_source.get_next(target_id) {
+                let mut buf = Vec::new();
+                if let Ok(()) = position.encode(&mut buf) {
+                    if let Err(e) = serial_manager.send_raw(&connection_id, buf.clone()).await {
+                        error!("Failed to send position data to {}: {}", connection_id, e);
                         break;
                     }
-
-                    current_step += 1;
+                    step += 1;
+                    let event_payload = serde_json::json!({
+                        "target_id": target_id,
+                        "connection_id": connection_id,
+                        "position": {
+                            "lat": position.lat,
+                            "lon": position.lon,
+                            "alt": position.alt,
+                        },
+                        "step": step,
+                        "total_steps": 0,
+                        "raw_data": base64::encode(&buf),
+                    });
+                    let _ = app_handle.emit("simulation_stream_update", event_payload);
                 } else {
-                    // Simulation complete for this target
-                    info!(
-                        "Simulation complete for target {} on connection {}",
-                        target_id, connection_id
-                    );
+                    error!("Failed to encode position data for target {}", target_id);
                     break;
                 }
-
-                // Sleep until next interval
-                let now = time::Instant::now();
-                if now < next_wake {
-                    let sleep_time = next_wake - now;
-                    time::sleep(sleep_time).await;
-                }
+            } else {
+                info!(
+                    "No more data for target {} on connection {}",
+                    target_id, connection_id
+                );
+                break;
             }
-        } else {
-            error!("Target {} not found in simulation data", target_id);
+            let now = time::Instant::now();
+            if now < next_wake {
+                let sleep_time = next_wake - now;
+                time::sleep(sleep_time).await;
+            }
         }
     }
 
@@ -311,15 +356,181 @@ impl SimulationStreamer {
     }
 }
 
+// --- Sensor Streaming (UDP to Serial) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SensorStreamConfig {
+    pub sensor_id: u32,
+    pub serial_connection_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SensorStreamRequest {
+    pub stream_configs: Vec<SensorStreamConfig>,
+    // Optionally, add interval_ms if you want to make it configurable
+}
+
+pub struct SensorStreamer {
+    serial_manager: Arc<SerialManager>,
+    active_streams: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+}
+
+impl SensorStreamer {
+    pub fn new(serial_manager: Arc<SerialManager>) -> Self {
+        Self {
+            serial_manager,
+            active_streams: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub async fn start_sensor_streaming(
+        &self,
+        request: SensorStreamRequest,
+        app_handle: tauri::AppHandle,
+    ) -> Result<(), String> {
+        self.stop_all_streams().await;
+        let serial_manager = self.serial_manager.clone();
+        let active_streams = self.active_streams.clone();
+        let sensor_map = SENSOR_MAP
+            .get()
+            .expect("Sensor map not initialized")
+            .clone();
+        for config in request.stream_configs {
+            let sensor_id = config.sensor_id;
+            let connection_id = config.serial_connection_id.clone();
+            let serial_mgr = serial_manager.clone();
+            let streams = active_streams.clone();
+            let sensor_map = sensor_map.clone();
+            let connection_id_handle = connection_id.clone();
+            let app_handle = app_handle.clone();
+            let task_handle = tokio::spawn(async move {
+                loop {
+                    // Get latest sensor data
+                    let data = {
+                        let map = sensor_map.lock().await;
+                        map.get(&sensor_id).cloned()
+                    };
+                    if let Some(sensor) = data {
+                        let position = Position {
+                            lat: sensor.lat,
+                            lon: sensor.lon,
+                            alt: sensor.alt,
+                        };
+                        let mut buf = Vec::new();
+                        if let Ok(()) = position.encode(&mut buf) {
+                            let _ = serial_mgr
+                                .send_raw(&connection_id_handle, buf.clone())
+                                .await;
+                            // Emit debug event for frontend log
+
+                            let event_payload = serde_json::json!({
+                                "target_id": sensor_id,
+                                "connection_id": connection_id_handle,
+                                "position": {
+                                    "lat": sensor.lat,
+                                    "lon": sensor.lon,
+                                    "alt": sensor.alt,
+                                },
+                                "step": 0,
+                                "total_steps": 0,
+                                "raw_data": base64::encode(&buf),
+                            });
+                            let _ = app_handle.emit("simulation_stream_update", event_payload);
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            });
+            let mut streams_guard = streams.lock().await;
+            let stream_key = format!("{}_{}", sensor_id, connection_id.clone());
+            streams_guard.insert(stream_key, task_handle);
+        }
+        Ok(())
+    }
+
+    pub async fn stop_all_streams(&self) {
+        let mut streams_guard = self.active_streams.lock().await;
+
+        for (stream_key, handle) in streams_guard.drain() {
+            info!("Stopping Sensor stream: {}", stream_key);
+            handle.abort();
+        }
+
+        info!("Stopped all Sensor streams");
+    }
+
+    pub async fn stop_stream(&self, sensor_id: u32, connection_id: &str) {
+        let stream_key = format!("{}_{}", sensor_id, connection_id);
+        let mut streams_guard = self.active_streams.lock().await;
+
+        if let Some(handle) = streams_guard.remove(&stream_key) {
+            info!("Stopping Sensor stream: {}", stream_key);
+            handle.abort();
+        }
+    }
+
+    pub async fn get_active_streams(&self) -> Vec<String> {
+        let streams_guard = self.active_streams.lock().await;
+        streams_guard.keys().cloned().collect()
+    }
+}
+
+// --- Tauri commands for sensor streaming ---
+#[tauri::command]
+pub async fn start_sensor_streaming(
+    app_handle: tauri::AppHandle,
+    request: SensorStreamRequest,
+    sensor_streamer: tauri::State<'_, Arc<SensorStreamer>>,
+) -> Result<(), String> {
+    sensor_streamer
+        .start_sensor_streaming(request, app_handle)
+        .await
+}
+
+#[tauri::command]
+pub async fn stop_sensor_streaming(
+    sensor_streamer: tauri::State<'_, Arc<SensorStreamer>>,
+) -> Result<(), String> {
+    sensor_streamer.stop_all_streams().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_sensor_target_stream(
+    sensor_id: u32,
+    connection_id: String,
+    sensor_streamer: tauri::State<'_, Arc<SensorStreamer>>,
+) -> Result<(), String> {
+    sensor_streamer.stop_stream(sensor_id, &connection_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_sensor_streams(
+    sensor_streamer: tauri::State<'_, Arc<SensorStreamer>>,
+) -> Result<Vec<String>, String> {
+    Ok(sensor_streamer.get_active_streams().await)
+}
+
+// --- API Documentation ---
+// start_sensor_streaming(SensorStreamRequest) - Start streaming UDP sensor data to serial
+// stop_sensor_streaming() - Stop all sensor streams
+// stop_sensor_target_stream(sensor_id, connection_id) - Stop a specific sensor stream
+// get_active_sensor_streams() - List active sensor-to-serial streams
+//
+// SensorStreamRequest: { stream_configs: [{ sensor_id, serial_connection_id }] }
+
 // Tauri commands for simulation streaming
 #[tauri::command]
 pub async fn start_simulation_streaming(
-    app: tauri::AppHandle,
+    app_handle: tauri::AppHandle,
     request: SimulationStreamRequest,
-    serial_manager: tauri::State<'_, Arc<SerialManager>>,
+
     streamer: tauri::State<'_, Arc<SimulationStreamer>>,
 ) -> Result<(), String> {
-    streamer.start_simulation_streaming(app, request).await
+    streamer
+        .start_simulation_streaming(app_handle, request)
+        .await
 }
 
 #[tauri::command]
@@ -372,4 +583,13 @@ pub async fn check_simulation_data_available(
 ) -> Result<bool, String> {
     let data_guard = simulation_data.lock().unwrap();
     Ok(data_guard.is_some() && data_guard.as_ref().unwrap().results.len() > 0)
+}
+
+#[tauri::command]
+pub async fn get_udp_sensor_clients() -> Result<Vec<SensorData>, String> {
+    let map = SENSOR_MAP
+        .get()
+        .expect("Sensor map not initialized")
+        .clone();
+    Ok(crate::general::sensor_udp_server::get_udp_sensor_clients(map).await)
 }

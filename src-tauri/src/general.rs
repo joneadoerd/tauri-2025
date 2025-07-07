@@ -3,6 +3,7 @@ pub mod serial;
 pub mod timer_res;
 pub mod simulation_commands;
 pub mod simulation_streaming;
+pub mod sensor_udp_server;
 use std::str::FromStr;
 use std::sync::Arc;
 

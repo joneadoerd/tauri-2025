@@ -42,10 +42,10 @@ export async function stopSimulationStreaming(): Promise<void> {
  * Stop streaming for a specific target-connection pair
  */
 export async function stopTargetStream(
-  target_id: number,
-  connection_id: string
+  targetId: number,
+  connectionId: string
 ): Promise<void> {
-  return invoke("stop_target_stream", { targetId: target_id, connectionId: connection_id });
+  return invoke("stop_target_stream", { targetId, connectionId });
 }
 
 /**

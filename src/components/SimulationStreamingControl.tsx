@@ -3,20 +3,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { 
-  Play, 
-  Square, 
-  Settings, 
-  AlertCircle, 
+import {
+  Play,
+  Square,
+  Settings,
+  AlertCircle,
   CheckCircle,
   Clock,
   Target,
   Wifi,
-  RefreshCw
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -37,6 +43,9 @@ import { invoke } from "@tauri-apps/api/core";
 interface SimulationStreamingControlProps {
   simulationData?: SimulationResultList;
   onStreamingStateChange?: (isStreaming: boolean) => void;
+  dataSource?: string; // Add this prop
+  availableTargets: number[];
+  disableInterval?: boolean;
 }
 
 interface StreamMapping {
@@ -48,9 +57,14 @@ interface StreamMapping {
 export function SimulationStreamingControl({
   simulationData,
   onStreamingStateChange,
+  dataSource = "Simulation",
+  availableTargets,
+  disableInterval = false,
 }: SimulationStreamingControlProps) {
   const [streamMappings, setStreamMappings] = useState<StreamMapping[]>([]);
-  const [availableConnections, setAvailableConnections] = useState<string[]>([]);
+  const [availableConnections, setAvailableConnections] = useState<string[]>(
+    []
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeStreams, setActiveStreams] = useState<string[]>([]);
   const [streamInterval, setStreamInterval] = useState(100);
@@ -83,10 +97,15 @@ export function SimulationStreamingControl({
     }
   };
 
-  // Load active streams
+  // Helper to load active streams for the current data source
   const loadActiveStreams = async () => {
     try {
-      const streams = await getActiveSimulationStreams();
+      let streams: string[] = [];
+      if (dataSource === "Sensor") {
+        streams = await invoke<string[]>("get_active_sensor_streams");
+      } else {
+        streams = await getActiveSimulationStreams();
+      }
       setActiveStreams(streams);
       setIsStreaming(streams.length > 0);
       onStreamingStateChange?.(streams.length > 0);
@@ -110,7 +129,11 @@ export function SimulationStreamingControl({
     }
   }, [simulationData]);
 
-  const availableTargets = simulationData ? getAvailableTargets(simulationData) : [];
+  // On mount and when dataSource changes, load active streams
+  useEffect(() => {
+    loadActiveStreams();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSource]);
 
   const addStreamMapping = () => {
     if (availableTargets.length > 0 && availableConnections.length > 0) {
@@ -124,7 +147,7 @@ export function SimulationStreamingControl({
       ]);
     } else {
       setErrors([
-        `Cannot add mapping. Available targets: ${availableTargets.length}, Available connections: ${availableConnections.length}`
+        `Cannot add mapping. Available targets: ${availableTargets.length}, Available connections: ${availableConnections.length}`,
       ]);
     }
   };
@@ -133,7 +156,11 @@ export function SimulationStreamingControl({
     setStreamMappings(streamMappings.filter((_, i) => i !== index));
   };
 
-  const updateStreamMapping = (index: number, field: keyof StreamMapping, value: any) => {
+  const updateStreamMapping = (
+    index: number,
+    field: keyof StreamMapping,
+    value: any
+  ) => {
     setStreamMappings(
       streamMappings.map((mapping, i) =>
         i === index ? { ...mapping, [field]: value } : mapping
@@ -151,9 +178,16 @@ export function SimulationStreamingControl({
     setErrors([]);
 
     try {
-      const request = createSimulationStreamRequest(simulationData, streamMappings, streamInterval);
+      const request = {
+        ...createSimulationStreamRequest(
+          simulationData,
+          streamMappings,
+          streamInterval
+        ),
+        data_source: dataSource,
+      };
       const validation = validateSimulationStreamRequest(request);
-      
+
       if (!validation.valid) {
         setErrors(validation.errors);
         return;
@@ -162,10 +196,7 @@ export function SimulationStreamingControl({
       await startSimulationStreaming(request);
       setIsStreaming(true);
       onStreamingStateChange?.(true);
-      
-      // Refresh active streams
-      const streams = await getActiveSimulationStreams();
-      setActiveStreams(streams);
+      await loadActiveStreams();
     } catch (error) {
       setErrors([`Failed to start streaming: ${error}`]);
     } finally {
@@ -176,7 +207,11 @@ export function SimulationStreamingControl({
   const stopStreaming = async () => {
     setIsLoading(true);
     try {
-      await stopSimulationStreaming();
+      if (dataSource === "Sensor") {
+        await invoke("stop_sensor_streaming");
+      } else {
+        await stopSimulationStreaming();
+      }
       setIsStreaming(false);
       onStreamingStateChange?.(false);
       setActiveStreams([]);
@@ -188,21 +223,51 @@ export function SimulationStreamingControl({
   };
 
   const stopSpecificStream = async (streamKey: string) => {
-    const [targetId, connectionId] = streamKey.split("_");
+    // Split only on the first underscore
+    const underscoreIdx = streamKey.indexOf("_");
+    if (underscoreIdx === -1) return;
+    const targetId = parseInt(streamKey.substring(0, underscoreIdx));
+    const connectionId = streamKey.substring(underscoreIdx + 1);
     try {
-      await stopTargetStream(parseInt(targetId), connectionId);
-      setActiveStreams(activeStreams.filter(s => s !== streamKey));
+      if (dataSource === "Sensor") {
+        await invoke("stop_sensor_target_stream", { sensorId: targetId, connectionId });
+      } else {
+        await stopTargetStream(targetId, connectionId);
+      }
+      // Reload active streams after stopping
+      await loadActiveStreams();
     } catch (error) {
       setErrors([`Failed to stop stream ${streamKey}: ${error}`]);
     }
   };
 
   const refreshData = async () => {
-    await Promise.all([
-      loadConnections(),
-      loadTargets(),
-      loadActiveStreams()
-    ]);
+    await Promise.all([loadConnections(), loadTargets(), loadActiveStreams()]);
+  };
+
+  // Add a function to start sensor streaming
+  const startSensorStreaming = async () => {
+    if (streamMappings.length === 0) return;
+    setIsLoading(true);
+    setErrors([]);
+    try {
+      const request = {
+        stream_configs: streamMappings.map(
+          ({ target_id, serial_connection_id }) => ({
+            sensor_id: target_id,
+            serial_connection_id,
+          })
+        ),
+      };
+      await invoke("start_sensor_streaming", { request });
+      setIsStreaming(true);
+      onStreamingStateChange?.(true);
+      await loadActiveStreams();
+    } catch (error) {
+      setErrors([`Failed to start sensor streaming: ${error}`]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -231,11 +296,13 @@ export function SimulationStreamingControl({
           </Badge>
           {activeStreams.length > 0 && (
             <Badge variant="outline">
-              {activeStreams.length} active stream{activeStreams.length !== 1 ? "s" : ""}
+              {activeStreams.length} active stream
+              {activeStreams.length !== 1 ? "s" : ""}
             </Badge>
           )}
           <Badge variant="outline">
-            {availableConnections.length} connection{availableConnections.length !== 1 ? "s" : ""} available
+            {availableConnections.length} connection
+            {availableConnections.length !== 1 ? "s" : ""} available
           </Badge>
           <Button
             variant="outline"
@@ -243,7 +310,9 @@ export function SimulationStreamingControl({
             onClick={refreshData}
             disabled={isRefreshing}
           >
-            <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-4 w-4 mr-1 ${isRefreshing ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
         </div>
@@ -272,6 +341,7 @@ export function SimulationStreamingControl({
             max="10000"
             value={streamInterval}
             onChange={(e) => setStreamInterval(parseInt(e.target.value) || 100)}
+            disabled={disableInterval}
           />
         </div>
 
@@ -285,7 +355,10 @@ export function SimulationStreamingControl({
               variant="outline"
               size="sm"
               onClick={addStreamMapping}
-              disabled={availableTargets.length === 0 || availableConnections.length === 0}
+              disabled={
+                availableTargets.length === 0 ||
+                availableConnections.length === 0
+              }
             >
               <Settings className="h-4 w-4 mr-1" />
               Add Mapping
@@ -294,7 +367,8 @@ export function SimulationStreamingControl({
 
           {streamMappings.length === 0 && (
             <div className="text-center text-muted-foreground py-4">
-              No stream mappings configured. Add at least one mapping to start streaming.
+              No stream mappings configured. Add at least one mapping to start
+              streaming.
             </div>
           )}
 
@@ -370,6 +444,7 @@ export function SimulationStreamingControl({
                         parseInt(e.target.value) || 100
                       )
                     }
+                    disabled={disableInterval}
                   />
                 </div>
               </div>
@@ -385,7 +460,10 @@ export function SimulationStreamingControl({
             <Label>Active Streams</Label>
             <div className="space-y-2">
               {activeStreams.map((streamKey) => (
-                <div key={streamKey} className="flex items-center justify-between p-2 border rounded">
+                <div
+                  key={streamKey}
+                  className="flex items-center justify-between p-2 border rounded"
+                >
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4" />
                     <span className="font-mono text-sm">{streamKey}</span>
@@ -407,14 +485,31 @@ export function SimulationStreamingControl({
 
         {/* Control Buttons */}
         <div className="flex gap-2">
-          <Button
-            onClick={startStreaming}
-            disabled={isLoading || streamMappings.length === 0 || !simulationData}
-            className="flex-1"
-          >
-            <Play className="h-4 w-4 mr-2" />
-            {isLoading ? "Starting..." : "Start Streaming"}
-          </Button>
+          {dataSource !== "Sensor" && (
+            <Button
+              onClick={startStreaming}
+              disabled={
+                isLoading ||
+                streamMappings.length === 0 ||
+                (dataSource !== "Sensor" && !simulationData)
+              }
+              className="flex-1"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {isLoading ? "Starting..." : "Start Streaming (Simulation)"}
+            </Button>
+          )}
+          {dataSource === "Sensor" && (
+            <Button
+              onClick={startSensorStreaming}
+              disabled={isLoading || streamMappings.length === 0}
+              className="flex-1"
+              variant="default"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {isLoading ? "Starting..." : "Start Streaming (Sensor)"}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={stopStreaming}
@@ -428,4 +523,4 @@ export function SimulationStreamingControl({
       </CardContent>
     </Card>
   );
-} 
+}

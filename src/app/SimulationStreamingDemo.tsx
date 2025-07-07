@@ -58,6 +58,41 @@ function useSimulationStream() {
   return { targets, log };
 }
 
+interface UdpSensorClient {
+  sensor_id: number;
+  lat: number;
+  lon: number;
+  alt: number;
+  temp: number;
+}
+
+function useUdpSensorClients() {
+  const [clients, setClients] = useState<UdpSensorClient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const result = await invoke<UdpSensorClient[]>("get_udp_sensor_clients");
+      setClients(result);
+    } catch (e) {
+      setClients([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 1000); // refresh every second
+    return () => clearInterval(interval);
+  }, []);
+  return { clients, loading, refresh };
+}
+
+const DATA_SOURCES = [
+  { label: "Simulation", value: "Simulation" },
+  { label: "Sensor", value: "Sensor" },
+];
+
 export default function SimulationStreamingDemo() {
   const [simulationData, setSimulationData] = useState<SimulationResultList | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
@@ -65,8 +100,10 @@ export default function SimulationStreamingDemo() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [dataSource, setDataSource] = useState("Simulation");
 
   const { targets, log } = useSimulationStream();
+  const { clients: udpClients, loading: udpLoading, refresh: refreshUdp } = useUdpSensorClients();
 
   // Load simulation data
   const loadSimulationData = async () => {
@@ -124,6 +161,13 @@ export default function SimulationStreamingDemo() {
     await loadSimulationData();
   };
 
+  // Use UDP sensor IDs as available targets if dataSource is 'Sensor', else use simulationData
+  const availableTargets = dataSource === "Sensor"
+    ? udpClients.map((c) => c.sensor_id)
+    : simulationData
+      ? simulationData.results.map((result) => result.target_id)
+      : [];
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center space-y-2">
@@ -171,6 +215,18 @@ export default function SimulationStreamingDemo() {
             >
               {autoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
             </Button>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Data Source</label>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={dataSource}
+                onChange={e => setDataSource(e.target.value)}
+              >
+                {DATA_SOURCES.map(ds => (
+                  <option key={ds.value} value={ds.value}>{ds.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {lastRefresh && (
@@ -260,6 +316,9 @@ export default function SimulationStreamingDemo() {
       <SimulationStreamingControl
         simulationData={simulationData}
         onStreamingStateChange={handleStreamingStateChange}
+        dataSource={dataSource}
+        availableTargets={availableTargets}
+        disableInterval={dataSource === "Sensor"}
       />
 
       {/* Usage Example */}
@@ -280,7 +339,8 @@ const request = {
       stream_interval_ms: 100
     }
   ],
-  stream_interval_ms: 100
+  stream_interval_ms: 100,
+  data_source: "${dataSource}" // Include data source
 };
 
 await startSimulationStreaming(request);`}
@@ -298,22 +358,40 @@ await startSimulationStreaming(request);`}
               <CardTitle>Map View (Live Targets)</CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Placeholder for map - replace with real map if needed */}
               <div className="relative h-64 bg-gray-100 rounded flex items-center justify-center">
-                {Object.values(targets).length === 0 ? (
-                  <span className="text-muted-foreground">No active targets</span>
+                {dataSource === "Sensor" ? (
+                  udpClients.length === 0 ? (
+                    <span className="text-muted-foreground">No active sensor targets</span>
+                  ) : (
+                    <ul className="space-y-2">
+                      {udpClients.map((t) => (
+                        <li key={t.sensor_id} className="flex items-center gap-2">
+                          <span className="font-bold">Sensor {t.sensor_id}</span>
+                          <span>Status: <span className="text-green-600">Online</span></span>
+                          <span>Lat: {t.lat.toFixed(6)}</span>
+                          <span>Lon: {t.lon.toFixed(6)}</span>
+                          <span>Alt: {t.alt.toFixed(1)}</span>
+                          <span>Temp: {t.temp.toFixed(2)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )
                 ) : (
-                  <ul className="space-y-2">
-                    {Object.values(targets).map((t: SimulationStreamUpdate) => (
-                      <li key={t.target_id} className="flex items-center gap-2">
-                        <span className="font-bold">Target {t.target_id}</span>
-                        <span>Lat: {t.position.lat.toFixed(6)}</span>
-                        <span>Lon: {t.position.lon.toFixed(6)}</span>
-                        <span>Alt: {t.position.alt.toFixed(1)}</span>
-                        <span>Step: {t.step}/{t.total_steps}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  Object.values(targets).length === 0 ? (
+                    <span className="text-muted-foreground">No active targets</span>
+                  ) : (
+                    <ul className="space-y-2">
+                      {Object.values(targets).map((t: SimulationStreamUpdate) => (
+                        <li key={t.target_id} className="flex items-center gap-2">
+                          <span className="font-bold">Target {t.target_id}</span>
+                          <span>Lat: {t.position.lat.toFixed(6)}</span>
+                          <span>Lon: {t.position.lon.toFixed(6)}</span>
+                          <span>Alt: {t.position.alt.toFixed(1)}</span>
+                          <span>Step: {t.step}/{t.total_steps}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )
                 )}
               </div>
             </CardContent>
@@ -326,21 +404,40 @@ await startSimulationStreaming(request);`}
               <CardTitle>Target Info (Sidebar)</CardTitle>
             </CardHeader>
             <CardContent>
-              {Object.values(targets).length === 0 ? (
-                <span className="text-muted-foreground">No active targets</span>
+              {dataSource === "Sensor" ? (
+                udpClients.length === 0 ? (
+                  <span className="text-muted-foreground">No active sensor targets</span>
+                ) : (
+                  <ul className="space-y-3">
+                    {udpClients.map((t) => (
+                      <li key={t.sensor_id} className="border rounded p-2">
+                        <div className="font-semibold">Sensor {t.sensor_id}</div>
+                        <div>Status: <span className="text-green-600">Online</span></div>
+                        <div>Lat: {t.lat.toFixed(6)}</div>
+                        <div>Lon: {t.lon.toFixed(6)}</div>
+                        <div>Alt: {t.alt.toFixed(1)}</div>
+                        <div>Temp: {t.temp.toFixed(2)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )
               ) : (
-                <ul className="space-y-3">
-                  {Object.values(targets).map((t: SimulationStreamUpdate) => (
-                    <li key={t.target_id} className="border rounded p-2">
-                      <div className="font-semibold">Target {t.target_id}</div>
-                      <div>Connection: <span className="font-mono">{t.connection_id}</span></div>
-                      <div>Lat: {t.position.lat.toFixed(6)}</div>
-                      <div>Lon: {t.position.lon.toFixed(6)}</div>
-                      <div>Alt: {t.position.alt.toFixed(1)}</div>
-                      <div>Step: {t.step} / {t.total_steps}</div>
-                    </li>
-                  ))}
-                </ul>
+                Object.values(targets).length === 0 ? (
+                  <span className="text-muted-foreground">No active targets</span>
+                ) : (
+                  <ul className="space-y-3">
+                    {Object.values(targets).map((t: SimulationStreamUpdate) => (
+                      <li key={t.target_id} className="border rounded p-2">
+                        <div className="font-semibold">Target {t.target_id}</div>
+                        <div>Connection: <span className="font-mono">{t.connection_id}</span></div>
+                        <div>Lat: {t.position.lat.toFixed(6)}</div>
+                        <div>Lon: {t.position.lon.toFixed(6)}</div>
+                        <div>Alt: {t.position.alt.toFixed(1)}</div>
+                        <div>Step: {t.step} / {t.total_steps}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )
               )}
             </CardContent>
           </Card>
@@ -365,6 +462,49 @@ await startSimulationStreaming(request);`}
               </ul>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* UDP Config Tab */}
+      <Card>
+        <CardHeader>
+          <CardTitle>UDP Sensor Server</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4 mb-2">
+            <Button variant="outline" size="sm" onClick={refreshUdp} disabled={udpLoading}>
+              {udpLoading ? "Refreshing..." : "Refresh Clients"}
+            </Button>
+            <span className="text-muted-foreground text-sm">Listening on UDP :5001</span>
+          </div>
+          {udpClients.length === 0 ? (
+            <div className="text-muted-foreground">No sensor clients connected.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs border">
+                <thead>
+                  <tr>
+                    <th className="px-2 py-1 border">Sensor ID</th>
+                    <th className="px-2 py-1 border">Lat</th>
+                    <th className="px-2 py-1 border">Lon</th>
+                    <th className="px-2 py-1 border">Alt</th>
+                    <th className="px-2 py-1 border">Temp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {udpClients.map((c) => (
+                    <tr key={c.sensor_id}>
+                      <td className="px-2 py-1 border font-mono">{c.sensor_id}</td>
+                      <td className="px-2 py-1 border">{c.lat.toFixed(4)}</td>
+                      <td className="px-2 py-1 border">{c.lon.toFixed(4)}</td>
+                      <td className="px-2 py-1 border">{c.alt.toFixed(1)}</td>
+                      <td className="px-2 py-1 border">{c.temp.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
