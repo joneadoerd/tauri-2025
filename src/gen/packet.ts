@@ -7,15 +7,15 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 export const protobufPackage = "packet";
 
 export interface Packet {
-  header: PacketHeader | undefined;
-  payload: PacketPayload | undefined;
-  checksum: PacketChecksum | undefined;
-  timestamp: PacketTimestamp | undefined;
-  source: PacketSource | undefined;
-  destination: PacketDestination | undefined;
-  protocol: PacketProtocol | undefined;
-  flags: PacketFlags | undefined;
-  version: PacketVersion | undefined;
+  header?: PacketHeader | undefined;
+  payload?: PacketPayload | undefined;
+  checksum?: PacketChecksum | undefined;
+  timestamp?: PacketTimestamp | undefined;
+  source?: PacketSource | undefined;
+  destination?: PacketDestination | undefined;
+  protocol?: PacketProtocol | undefined;
+  flags?: PacketFlags | undefined;
+  version?: PacketVersion | undefined;
 }
 
 export interface PacketHeader {
@@ -27,7 +27,7 @@ export interface PacketHeader {
 }
 
 export interface PacketPayload {
-  type: number;
+  typeValue: number;
   data: Uint8Array;
   size: number;
   encoding: string;
@@ -469,13 +469,13 @@ export const PacketHeader: MessageFns<PacketHeader> = {
 };
 
 function createBasePacketPayload(): PacketPayload {
-  return { type: 0, data: new Uint8Array(0), size: 0, encoding: "" };
+  return { typeValue: 0, data: new Uint8Array(0), size: 0, encoding: "" };
 }
 
 export const PacketPayload: MessageFns<PacketPayload> = {
   encode(message: PacketPayload, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.type !== 0) {
-      writer.uint32(8).uint32(message.type);
+    if (message.typeValue !== 0) {
+      writer.uint32(8).uint32(message.typeValue);
     }
     if (message.data.length !== 0) {
       writer.uint32(18).bytes(message.data);
@@ -501,7 +501,7 @@ export const PacketPayload: MessageFns<PacketPayload> = {
             break;
           }
 
-          message.type = reader.uint32();
+          message.typeValue = reader.uint32();
           continue;
         }
         case 2: {
@@ -539,7 +539,7 @@ export const PacketPayload: MessageFns<PacketPayload> = {
 
   fromJSON(object: any): PacketPayload {
     return {
-      type: isSet(object.type) ? globalThis.Number(object.type) : 0,
+      typeValue: isSet(object.typeValue) ? globalThis.Number(object.typeValue) : 0,
       data: isSet(object.data) ? bytesFromBase64(object.data) : new Uint8Array(0),
       size: isSet(object.size) ? globalThis.Number(object.size) : 0,
       encoding: isSet(object.encoding) ? globalThis.String(object.encoding) : "",
@@ -548,8 +548,8 @@ export const PacketPayload: MessageFns<PacketPayload> = {
 
   toJSON(message: PacketPayload): unknown {
     const obj: any = {};
-    if (message.type !== 0) {
-      obj.type = Math.round(message.type);
+    if (message.typeValue !== 0) {
+      obj.typeValue = Math.round(message.typeValue);
     }
     if (message.data.length !== 0) {
       obj.data = base64FromBytes(message.data);
@@ -568,7 +568,7 @@ export const PacketPayload: MessageFns<PacketPayload> = {
   },
   fromPartial<I extends Exact<DeepPartial<PacketPayload>, I>>(object: I): PacketPayload {
     const message = createBasePacketPayload();
-    message.type = object.type ?? 0;
+    message.typeValue = object.typeValue ?? 0;
     message.data = object.data ?? new Uint8Array(0);
     message.size = object.size ?? 0;
     message.encoding = object.encoding ?? "";

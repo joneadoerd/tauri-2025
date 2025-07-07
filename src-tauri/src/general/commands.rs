@@ -1,5 +1,5 @@
 use crate::{
-    general::{serial::SerialConnectionInfo},
+    general::serial::SerialConnectionInfo,
     packet::{PacketChecksum, PacketHeader},
 };
 use std::str::FromStr;
@@ -14,17 +14,9 @@ pub async fn start_connection(
     id: String,
     port: String,
     baud: u32,
-    packet_type: String,
     app: AppHandle,
 ) -> Result<(), String> {
-    match PacketWrapper::from_str(&packet_type)? {
-        PacketWrapper::Header(_packet) => {
-            start_dynamic_packet::<PacketHeader>(&state, id, port, baud, app).await
-        }
-        PacketWrapper::Payload(_packet) => {
-            start_dynamic_packet::<PacketChecksum>(&state, id, port, baud, app).await
-        }
-    }
+    start_dynamic_packet(&state, id, port, baud, app).await
 }
 
 #[tauri::command]
@@ -39,7 +31,10 @@ pub async fn send_packet(
 }
 
 #[tauri::command]
-pub async fn stop_connection(state: State<'_, Arc<SerialManager>>, id: String) -> Result<(), String> {
+pub async fn stop_connection(
+    state: State<'_, Arc<SerialManager>>,
+    id: String,
+) -> Result<(), String> {
     state.stop(&id).await;
     Ok(())
 }

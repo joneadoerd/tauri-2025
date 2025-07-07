@@ -2,15 +2,17 @@ syntax = "proto3";
 package packet;
 
 message Packet {
-  PacketHeader header = 1;
-  PacketPayload payload = 2;
-  PacketChecksum checksum = 3;
-  PacketTimestamp timestamp = 4;
-  PacketSource source = 5;
-  PacketDestination destination = 6;
-  PacketProtocol protocol = 7;
-  PacketFlags flags = 8;
-  PacketVersion version = 9;
+  oneof kind {
+    PacketHeader header = 1;
+    PacketPayload payload = 2;
+    PacketChecksum checksum = 3;
+    PacketTimestamp timestamp = 4;
+    PacketSource source = 5;
+    PacketDestination destination = 6;
+    PacketProtocol protocol = 7;
+    PacketFlags flags = 8;
+    PacketVersion version = 9;
+  }
 }
 message PacketHeader {
   uint32 id = 1;
@@ -20,7 +22,7 @@ message PacketHeader {
   uint32 flags = 5;
 }
 message PacketPayload {
-  uint32 type = 1;
+  uint32 typeValue = 1;
   bytes data = 2;
   uint32 size = 3;
   string encoding = 4;
@@ -107,94 +109,3 @@ message PacketPing {
   PacketStatus status = 5;
 }
 
-// syntax = "proto3";
-
-// package packet;
-
-
-// // ====================== الرسالة الرئيسية ======================
-// message TelemetryPacket {
-//   // ------------------ Basic Data ------------------
-//   VelocityData velocity_data = 1;   
-//   EulerAngle  euler_angle = 2;
-//   Position position = 3;  
-//   // ------------------ Network & Transmission ------------------
-//   uint32 sequence_number = 4;      
-//    bool requires_ack = 5;           
-//   bytes checksum = 6;             
-
-//   // ------------------ Error Handling ------------------
-//   repeated TransmissionError errors = 7; // قائمة الأخطاء
-//   RetransmissionRequest retransmission = 8; // طلب إعادة إرسال
-
- 
-// }
-
-// // ====================== تعريفات الرسائل الفرعية ======================
-
-// // بيانات الحساسات
-// message VelocityData {
-//     float V_x = 1;
-//     float V_y = 2;
-//     float V_z = 3;
-// }
-
-// // التوجيه
-// message EulerAngle {
-//   float roll = 1;    // Roll (rad)
-//   float pitch = 2;   // Pitch (rad)
-//   float yaw = 3;     // Yaw (rad)
-// }
-
-// // الموضع
-// message Position {
-//   double x = 1;   
-//   double y = 2;   
-//   double z = 3;    
-// }
-
-// // معلومات الجهاز
-// message DeviceInfo {
-//   string device_id = 1;        
-//   string firmware_version = 2;     
-//   uint32 uptime = 3;            
-// }
-
-// // معلومات الشبكة
-// message NetworkInfo {
-//   uint32 rssi = 1;           
-//   float packet_loss = 2;      
-//   string ip_address = 3;       
-//   uint32 tx_power = 4;        
-// }
-
-// // خطأ في الإرسال
-// message TransmissionError {
-//   ErrorCode code = 1;
-//   string message = 2;
-// string occurrence_time = 3;
-// }
-
-// // طلب إعادة الإرسال
-// message RetransmissionRequest {
-//   repeated uint32 missing_sequences = 1;  // الأرقام المفقودة
-//   uint32 retry_count = 2;                 // عدد المحاولات
-// }
-
-// // ======================  (Enums) ======================
-// enum ErrorCode {
-  
-//   NETWORK_DROPPED_PACKET = 0;
-//   NETWORK_HIGH_LATENCY = 1;
-  
-  
-//   PROTOCOL_VERSION_MISMATCH = 2;
-//   CHECKSUM_MISMATCH = 3;
-// }
-
-// enum EncryptionType {
-//   NONE = 0;
-//   AES_128 = 1;
-//   AES_256 = 2;
-//   CUSTOM = 3;
-// }

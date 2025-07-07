@@ -2,24 +2,33 @@
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Packet {
-    #[prost(message, optional, tag = "1")]
-    pub header: ::core::option::Option<PacketHeader>,
-    #[prost(message, optional, tag = "2")]
-    pub payload: ::core::option::Option<PacketPayload>,
-    #[prost(message, optional, tag = "3")]
-    pub checksum: ::core::option::Option<PacketChecksum>,
-    #[prost(message, optional, tag = "4")]
-    pub timestamp: ::core::option::Option<PacketTimestamp>,
-    #[prost(message, optional, tag = "5")]
-    pub source: ::core::option::Option<PacketSource>,
-    #[prost(message, optional, tag = "6")]
-    pub destination: ::core::option::Option<PacketDestination>,
-    #[prost(message, optional, tag = "7")]
-    pub protocol: ::core::option::Option<PacketProtocol>,
-    #[prost(message, optional, tag = "8")]
-    pub flags: ::core::option::Option<PacketFlags>,
-    #[prost(message, optional, tag = "9")]
-    pub version: ::core::option::Option<PacketVersion>,
+    #[prost(oneof = "packet::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    pub kind: ::core::option::Option<packet::Kind>,
+}
+/// Nested message and enum types in `Packet`.
+pub mod packet {
+    #[derive(::serde::Serialize, ::serde::Deserialize)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag = "1")]
+        Header(super::PacketHeader),
+        #[prost(message, tag = "2")]
+        Payload(super::PacketPayload),
+        #[prost(message, tag = "3")]
+        Checksum(super::PacketChecksum),
+        #[prost(message, tag = "4")]
+        Timestamp(super::PacketTimestamp),
+        #[prost(message, tag = "5")]
+        Source(super::PacketSource),
+        #[prost(message, tag = "6")]
+        Destination(super::PacketDestination),
+        #[prost(message, tag = "7")]
+        Protocol(super::PacketProtocol),
+        #[prost(message, tag = "8")]
+        Flags(super::PacketFlags),
+        #[prost(message, tag = "9")]
+        Version(super::PacketVersion),
+    }
 }
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -39,7 +48,7 @@ pub struct PacketHeader {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PacketPayload {
     #[prost(uint32, tag = "1")]
-    pub r#type: u32,
+    pub type_value: u32,
     #[prost(bytes = "vec", tag = "2")]
     pub data: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "3")]

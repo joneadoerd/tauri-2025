@@ -13,7 +13,7 @@ export async function startConnection(
   baud: number,
   packetType: string
 ) {
-  return invoke("start_connection", { id, port, baud, packetType });
+  return invoke("start_connection", { id, port, baud });
 }
 
 export async function sendPacket(id: string, wrapper_json: string) {

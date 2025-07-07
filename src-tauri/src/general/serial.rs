@@ -66,19 +66,39 @@ impl SerialManager {
         let reader_for_task = reader.clone();
         let task = tokio::spawn(async move {
             let mut reader = reader_for_task.lock().await.take().unwrap();
+            let mut buffer = Vec::new();
             loop {
                 let mut buf = vec![0u8; 1024];
                 match reader.read(&mut buf).await {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);
-                        // Forward the raw bytes to a channel for sharing, if enabled
-                        match Message::decode(buf.as_slice()) {
-                            Ok(packet) => on_packet(reader_id.clone(), packet),
-                            Err(e) => eprintln!("[serialcom] Decode error: {}", e),
+                        buffer.extend_from_slice(&buf);
+                        
+                        // Try to decode complete messages from buffer
+                        while buffer.len() >= 4 {
+                            // Read message length (first 4 bytes)
+                            let length = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+                            
+                            if buffer.len() >= 4 + length {
+                                // Extract the complete message (skip the 4-byte length prefix)
+                                let message = buffer[4..4+length].to_vec();
+                                buffer.drain(0..4+length);
+                                
+                                // Try to decode as protobuf message
+                                match Message::decode(message.as_slice()) {
+                                    Ok(packet) => {
+                                        on_packet(reader_id.clone(), packet);
+                                        // Store the latest raw data for sharing
+                                        let mut last_data = LAST_DATA.lock().await;
+                                        last_data.insert(reader_id.clone(), message);
+                                    }
+                                    Err(e) => eprintln!("[serialcom] Decode error: {}", e),
+                                }
+                            } else {
+                                // Not enough data for complete message, wait for more
+                                break;
+                            }
                         }
-                        // Store the latest raw data for sharing
-                        let mut last_data = LAST_DATA.lock().await;
-                        last_data.insert(reader_id.clone(), buf.clone());
                     }
                     Ok(_) => continue,
                     Err(e) => {
@@ -147,6 +167,13 @@ impl SerialManager {
         let conn = self.connections.lock().await.get(id).cloned();
         if let Some(conn) = conn {
             if let Some(writer) = conn.writer.lock().await.as_mut() {
+                // Add length prefix (4 bytes, big-endian)
+                let length = data.len() as u32;
+                let length_bytes = length.to_be_bytes();
+                
+                // Write length prefix
+                writer.write_all(&length_bytes).await.map_err(|e| e.to_string())?;
+                // Write protobuf data
                 writer.write_all(&data).await.map_err(|e| e.to_string())?;
                 return Ok(());
             }
