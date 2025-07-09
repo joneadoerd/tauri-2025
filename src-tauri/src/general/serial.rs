@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 
+#[cfg(windows)]
 use super::timer_res::win_timer;
 
 
