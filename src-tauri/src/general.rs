@@ -13,6 +13,7 @@ use serial::SerialManager;
 use tauri::{AppHandle, Emitter};
 
 use crate::packet::{self, Packet, PacketChecksum, PacketHeader, PacketPayload};
+use crate::packet::SerialPacketEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
@@ -71,37 +72,13 @@ pub async fn start_dynamic_packet(
             id.clone(),
             port,
             baud,
-            move |_conn_id: String, packet: Packet| match packet.kind {
-                Some(packet::packet::Kind::Header(header)) => {
-                    let _ = app.emit("serial_packet_HEADER", header);
-                }
-                Some(packet::packet::Kind::Payload(payload)) => {
-                    let _ = app.emit("serial_packet_PAYLOAD", payload);
-                }
-                Some(packet::packet::Kind::Checksum(checksum)) => {
-                    let _ = app.emit("serial_packet_CHECKSUM", checksum);
-                }
-                Some(packet::packet::Kind::Timestamp(timestamp)) => {
-                    let _ = app.emit("serial_packet_TIMESTAMP", timestamp);
-                }
-                Some(packet::packet::Kind::Source(source)) => {
-                    let _ = app.emit("serial_packet_SOURCE", source);
-                }
-                Some(packet::packet::Kind::Destination(destination)) => {
-                    let _ = app.emit("serial_packet_DESTINATION", destination);
-                }
-                Some(packet::packet::Kind::Protocol(protocol)) => {
-                    let _ = app.emit("serial_packet_PROTOCOL", protocol);
-                }
-                Some(packet::packet::Kind::Flags(flags)) => {
-                    let _ = app.emit("serial_packet_FLAGS", flags);
-                }
-                Some(packet::packet::Kind::Version(version)) => {
-                    let _ = app.emit("serial_packet_VERSION", version);
-                }
-                None => {
-                    let _ = app.emit("serial_packet_UNKNOWN", "No packet type set");
-                }
+            move |conn_id: String, packet: Packet| {
+                // Emit only the general event with id and packet
+                let event = SerialPacketEvent {
+                    id: conn_id.clone(),
+                    packet: Some(packet.clone()),
+                };
+                let _ = app.emit("serial_packet", event);
             },
         )
         .await

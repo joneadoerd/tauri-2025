@@ -218,3 +218,11 @@ pub struct PacketPing {
     #[prost(message, optional, tag = "5")]
     pub status: ::core::option::Option<PacketStatus>,
 }
+#[derive(::serde::Serialize, ::serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SerialPacketEvent {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub packet: ::core::option::Option<Packet>,
+}

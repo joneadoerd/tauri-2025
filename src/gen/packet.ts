@@ -128,6 +128,11 @@ export interface PacketPing {
   status: PacketStatus | undefined;
 }
 
+export interface SerialPacketEvent {
+  id: string;
+  packet: Packet | undefined;
+}
+
 function createBasePacket(): Packet {
   return {
     header: undefined,
@@ -2055,6 +2060,84 @@ export const PacketPing: MessageFns<PacketPing> = {
       : undefined;
     message.status = (object.status !== undefined && object.status !== null)
       ? PacketStatus.fromPartial(object.status)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSerialPacketEvent(): SerialPacketEvent {
+  return { id: "", packet: undefined };
+}
+
+export const SerialPacketEvent: MessageFns<SerialPacketEvent> = {
+  encode(message: SerialPacketEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.packet !== undefined) {
+      Packet.encode(message.packet, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SerialPacketEvent {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSerialPacketEvent();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.packet = Packet.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SerialPacketEvent {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      packet: isSet(object.packet) ? Packet.fromJSON(object.packet) : undefined,
+    };
+  },
+
+  toJSON(message: SerialPacketEvent): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.packet !== undefined) {
+      obj.packet = Packet.toJSON(message.packet);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SerialPacketEvent>, I>>(base?: I): SerialPacketEvent {
+    return SerialPacketEvent.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SerialPacketEvent>, I>>(object: I): SerialPacketEvent {
+    const message = createBaseSerialPacketEvent();
+    message.id = object.id ?? "";
+    message.packet = (object.packet !== undefined && object.packet !== null)
+      ? Packet.fromPartial(object.packet)
       : undefined;
     return message;
   },
