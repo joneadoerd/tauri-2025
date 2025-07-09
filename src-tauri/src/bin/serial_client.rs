@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let writer_stream = writer.clone();
     tokio::spawn(async move {
         let mut rng = StdRng::from_entropy();
+        let mut packet_count = 0;
         loop {
             // Generate random streaming data
             let header = PacketHeader {
@@ -57,59 +58,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut buf = Vec::new();
             if let Ok(()) = packet.encode(&mut buf) {
-                // Add length prefix (4 bytes, big-endian)
-                let length = buf.len() as u32;
-                let length_bytes = length.to_be_bytes();
-                
                 let mut writer_guard = writer_stream.lock().await;
-                // Write length prefix
-                if let Err(e) = writer_guard.write_all(&length_bytes).await {
-                    eprintln!("Streaming write error: {}", e);
-                    break;
-                }
-                // Write protobuf data
+                
+                // Write protobuf data directly without length prefix
                 if let Err(e) = writer_guard.write_all(&buf).await {
                     eprintln!("Streaming write error: {}", e);
                     break;
                 }
-                println!("Sent streaming header data ({} bytes)", length);
+                
+                // Flush to ensure data is sent immediately
+                if let Err(e) = writer_guard.flush().await {
+                    eprintln!("Streaming flush error: {}", e);
+                    break;
+                }
+                
+                packet_count += 1;
+                println!("Sent streaming header data ({} bytes) - Packet #{}", buf.len(), packet_count);
             }
 
-            sleep(Duration::from_millis(1000)).await; // Send every 1 second
+            sleep(Duration::from_millis(100)).await; // Send every 100ms
         }
     });
 
     // Main command loop
     let mut buffer = Vec::new();
+    let mut packet_count = 0;
+    const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB max buffer size
+    
     loop {
         let mut buf = vec![0u8; 1024];
         match reader.read(&mut buf).await {
             Ok(n) if n > 0 => {
                 buf.truncate(n);
                 buffer.extend_from_slice(&buf);
+                
+                // Prevent buffer overflow
+                if buffer.len() > MAX_BUFFER_SIZE {
+                    eprintln!("Buffer overflow detected, clearing buffer");
+                    buffer.clear();
+                    continue;
+                }
+                
                 println!("Received {} bytes, buffer size: {}", n, buffer.len());
 
-                // Try to decode complete messages from buffer
-                while buffer.len() >= 4 {
-                    // Read message length (first 4 bytes)
-                    let length = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+                // Process all complete packets in buffer
+                let mut processed_bytes = 0;
+                while buffer.len() > processed_bytes {
+                    let remaining_data = &buffer[processed_bytes..];
                     
-                    if buffer.len() >= 4 + length {
-                        // Extract the complete message (skip the 4-byte length prefix)
-                        let message = buffer[4..4+length].to_vec();
-                        buffer.drain(0..4+length);
-                        
-                        // Try to decode as Packet
-                        match Packet::decode(message.as_slice()) {
-                            Ok(packet) => {
+                    // Try to decode as Packet
+                    match Packet::decode(remaining_data) {
+                        Ok(packet) => {
+                            let packet_size = packet.encoded_len();
+                            if packet_size <= remaining_data.len() {
+                                packet_count += 1;
+                                println!("Processing packet #{}", packet_count);
+                                
                                 match packet.kind {
                                     Some(packet::packet::Kind::Header(header)) => {
                                         println!("Received HEADER: {:?}", header);
-                                        // Send response after 10 seconds
+                                        // Send immediate response
                                         let writer_resp = writer.clone();
                                         tokio::spawn(async move {
-                                            sleep(Duration::from_secs(10)).await;
-
                                             let response = PacketHeader {
                                                 id: header.id + 1000,
                                                 length: header.length,
@@ -124,20 +134,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                             let mut resp_buf = Vec::new();
                                             if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                // Add length prefix (4 bytes, big-endian)
-                                                let length = resp_buf.len() as u32;
-                                                let length_bytes = length.to_be_bytes();
-                                                
                                                 let mut writer_guard = writer_resp.lock().await;
-                                                // Write length prefix
-                                                if let Err(e) = writer_guard.write_all(&length_bytes).await {
+                                                
+                                                // Write protobuf data directly without length prefix
+                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
                                                     eprintln!("Response write error: {}", e);
                                                 } else {
-                                                    // Write protobuf data
-                                                    if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                        eprintln!("Response write error: {}", e);
+                                                    // Flush to ensure immediate transmission
+                                                    if let Err(e) = writer_guard.flush().await {
+                                                        eprintln!("Response flush error: {}", e);
                                                     } else {
-                                                        println!("Sent response after 10 seconds ({} bytes)", length);
+                                                        println!("Sent immediate header response ({} bytes)", resp_buf.len());
                                                     }
                                                 }
                                             }
@@ -145,11 +152,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     Some(packet::packet::Kind::Payload(payload)) => {
                                         println!("Received PAYLOAD: {:?}", payload);
-                                        // Send response after 10 seconds
+                                        // Send immediate response
                                         let writer_resp = writer.clone();
                                         tokio::spawn(async move {
-                                            sleep(Duration::from_secs(10)).await;
-
                                             let response = PacketPayload {
                                                 type_value: payload.type_value + 1,
                                                 data: payload.data.clone(),
@@ -163,20 +168,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                             let mut resp_buf = Vec::new();
                                             if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                // Add length prefix (4 bytes, big-endian)
-                                                let length = resp_buf.len() as u32;
-                                                let length_bytes = length.to_be_bytes();
-                                                
                                                 let mut writer_guard = writer_resp.lock().await;
-                                                // Write length prefix
-                                                if let Err(e) = writer_guard.write_all(&length_bytes).await {
+                                                
+                                                // Write protobuf data directly without length prefix
+                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
                                                     eprintln!("Response write error: {}", e);
                                                 } else {
-                                                    // Write protobuf data
-                                                    if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                        eprintln!("Response write error: {}", e);
+                                                    // Flush to ensure immediate transmission
+                                                    if let Err(e) = writer_guard.flush().await {
+                                                        eprintln!("Response flush error: {}", e);
                                                     } else {
-                                                        println!("Sent payload response after 10 seconds ({} bytes)", length);
+                                                        println!("Sent immediate payload response ({} bytes)", resp_buf.len());
                                                     }
                                                 }
                                             }
@@ -184,11 +186,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     Some(packet::packet::Kind::Checksum(checksum)) => {
                                         println!("Received CHECKSUM: {:?}", checksum);
-                                        // Send response after 10 seconds
+                                        // Send immediate response
                                         let writer_resp = writer.clone();
                                         tokio::spawn(async move {
-                                            sleep(Duration::from_secs(10)).await;
-
                                             let response = PacketChecksum {
                                                 algorithm: checksum.algorithm,
                                                 value: checksum.value.clone(),
@@ -196,25 +196,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             };
 
                                             let resp_packet = Packet {
-                                                kind: Some(packet::packet::Kind::Checksum(response)),
+                                                kind: Some(packet::packet::Kind::Checksum(
+                                                    response,
+                                                )),
                                             };
 
                                             let mut resp_buf = Vec::new();
                                             if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                // Add length prefix (4 bytes, big-endian)
-                                                let length = resp_buf.len() as u32;
-                                                let length_bytes = length.to_be_bytes();
-                                                
                                                 let mut writer_guard = writer_resp.lock().await;
-                                                // Write length prefix
-                                                if let Err(e) = writer_guard.write_all(&length_bytes).await {
+                                                
+                                                // Write protobuf data directly without length prefix
+                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
                                                     eprintln!("Response write error: {}", e);
                                                 } else {
-                                                    // Write protobuf data
-                                                    if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                        eprintln!("Response write error: {}", e);
+                                                    // Flush to ensure immediate transmission
+                                                    if let Err(e) = writer_guard.flush().await {
+                                                        eprintln!("Response flush error: {}", e);
                                                     } else {
-                                                        println!("Sent checksum response after 10 seconds ({} bytes)", length);
+                                                        println!("Sent immediate checksum response ({} bytes)", resp_buf.len());
                                                     }
                                                 }
                                             }
@@ -224,15 +223,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         println!("Received unknown packet type");
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                println!("Failed to decode packet: {}", e);
+                                
+                                processed_bytes += packet_size;
+                            } else {
+                                // Incomplete packet, wait for more data
+                                break;
                             }
                         }
-                    } else {
-                        // Not enough data for complete message, wait for more
-                        break;
+                        Err(_) => {
+                            // If we can't decode, try to find a valid packet boundary
+                            let mut found_packet = false;
+                            for offset in 1..std::cmp::min(remaining_data.len(), 100) {
+                                if let Ok(packet) = Packet::decode(&remaining_data[offset..]) {
+                                    let packet_size = packet.encoded_len();
+                                    if offset + packet_size <= remaining_data.len() {
+                                        packet_count += 1;
+                                        println!("Processing packet #{} (found at offset {})", packet_count, offset);
+                                        
+                                        // Process the packet (same logic as above)
+                                        match packet.kind {
+                                            Some(packet::packet::Kind::Header(header)) => {
+                                                println!("Received HEADER: {:?}", header);
+                                                // Send immediate response
+                                                let writer_resp = writer.clone();
+                                                tokio::spawn(async move {
+                                                    let response = PacketHeader {
+                                                        id: header.id + 1000,
+                                                        length: header.length,
+                                                        checksum: header.checksum + 1,
+                                                        version: header.version,
+                                                        flags: header.flags,
+                                                    };
+
+                                                    let resp_packet = Packet {
+                                                        kind: Some(packet::packet::Kind::Header(response)),
+                                                    };
+
+                                                    let mut resp_buf = Vec::new();
+                                                    if let Ok(()) = resp_packet.encode(&mut resp_buf) {
+                                                        let mut writer_guard = writer_resp.lock().await;
+                                                        
+                                                        if let Err(e) = writer_guard.write_all(&resp_buf).await {
+                                                            eprintln!("Response write error: {}", e);
+                                                        } else {
+                                                            if let Err(e) = writer_guard.flush().await {
+                                                                eprintln!("Response flush error: {}", e);
+                                                            } else {
+                                                                println!("Sent immediate header response ({} bytes)", resp_buf.len());
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            _ => {
+                                                println!("Received packet at offset {}", offset);
+                                            }
+                                        }
+                                        
+                                        processed_bytes += offset + packet_size;
+                                        found_packet = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if !found_packet {
+                                // No valid packet found, remove one byte and try again
+                                processed_bytes += 1;
+                                if processed_bytes >= buffer.len() {
+                                    // No more data to process
+                                    break;
+                                }
+                            }
+                        }
                     }
+                }
+                
+                // Remove processed bytes from buffer
+                if processed_bytes > 0 {
+                    buffer.drain(0..processed_bytes);
                 }
             }
             Ok(_) => continue,

@@ -1,6 +1,7 @@
 // src/lib/serial.ts
 import { Simulation } from "@/gen/simulation";
 import { invoke } from "@tauri-apps/api/core";
+import { Packet } from "@/gen/packet";
 
 export interface SerialConnectionInfo {
   id: string;
@@ -8,16 +9,16 @@ export interface SerialConnectionInfo {
 }
 
 export async function startConnection(
-  id: string,
+  prefix: string,
   port: string,
   baud: number,
   packetType: string
 ) {
-  return invoke("start_connection", { id, port, baud });
+  return invoke("start_connection", { prefix, port, baud });
 }
 
-export async function sendPacket(id: string, wrapper_json: string) {
-  return invoke("send_packet", { id, wrapperJson: wrapper_json });
+export async function sendPacket(id: string, packet: Packet) {
+  return invoke("send_packet", { id, packet });
 }
 
 export async function stopConnection(id: string) {

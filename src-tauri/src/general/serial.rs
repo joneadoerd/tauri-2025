@@ -7,15 +7,14 @@ use tokio::time;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 use once_cell::sync::Lazy;
-use tracing::{error, warn};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
+use tracing::{error, warn};
 
 #[cfg(windows)]
 use super::timer_res::win_timer;
-
 
 static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
@@ -31,14 +30,14 @@ struct Connection {
     id: String,
     port_name: String,
     writer: Arc<Mutex<Option<WriteHalf<SerialStream>>>>,
-    reader: Arc<Mutex<Option<tokio::io::ReadHalf<SerialStream>>>>, // Add reader
+    reader: Arc<Mutex<Option<tokio::io::ReadHalf<SerialStream>>>>,
     reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 #[derive(Clone, Default)]
 pub struct SerialManager {
-    connections: Arc<Mutex<HashMap<String, Connection>>>, // key = connection id
-    share_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>, // Add a handle for the share task
+    connections: Arc<Mutex<HashMap<String, Connection>>>,
+    share_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl SerialManager {
@@ -68,42 +67,99 @@ impl SerialManager {
         let task = tokio::spawn(async move {
             let mut reader = reader_for_task.lock().await.take().unwrap();
             let mut buffer = Vec::new();
+            const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB max buffer size
+
             loop {
                 let mut buf = vec![0u8; 1024];
                 match reader.read(&mut buf).await {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);
                         buffer.extend_from_slice(&buf);
-                        
-                        // Try to decode complete messages from buffer
-                        while buffer.len() >= 4 {
-                            // Read message length (first 4 bytes)
-                            let length = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-                            
-                            if buffer.len() >= 4 + length {
-                                // Extract the complete message (skip the 4-byte length prefix)
-                                let message = buffer[4..4+length].to_vec();
-                                buffer.drain(0..4+length);
-                                
-                                // Try to decode as protobuf message
-                                match Message::decode(message.as_slice()) {
-                                    Ok(packet) => {
+
+                        // Prevent buffer overflow
+                        if buffer.len() > MAX_BUFFER_SIZE {
+                            error!(
+                                "[serialcom] Buffer overflow on {}, clearing buffer",
+                                reader_id
+                            );
+                            buffer.clear();
+                            continue;
+                        }
+
+                        // Process all complete packets in buffer
+                        let mut processed_bytes = 0;
+                        while buffer.len() > processed_bytes {
+                            let remaining_data = &buffer[processed_bytes..];
+
+                            // Try to decode as protobuf message
+                            match Message::decode(remaining_data) {
+                                Ok(packet) => {
+                                    let packet: F = packet;
+                                    let packet_size = packet.encoded_len();
+                                    if packet_size <= remaining_data.len() {
                                         on_packet(reader_id.clone(), packet);
+
                                         // Store the latest raw data for sharing
                                         let mut last_data = LAST_DATA.lock().await;
-                                        last_data.insert(reader_id.clone(), message);
+                                        last_data.insert(
+                                            reader_id.clone(),
+                                            remaining_data[..packet_size].to_vec(),
+                                        );
+
+                                        processed_bytes += packet_size;
+                                    } else {
+                                        // Incomplete packet, wait for more data
+                                        break;
                                     }
-                                    Err(e) => eprintln!("[serialcom] Decode error: {}", e),
                                 }
-                            } else {
-                                // Not enough data for complete message, wait for more
-                                break;
+                                Err(_) => {
+                                    // If we can't decode, try to find a valid packet boundary
+                                    // Look for potential packet start by trying different offsets
+                                    let mut found_packet = false;
+                                    for offset in 1..std::cmp::min(remaining_data.len(), 100) {
+                                        if let Ok(packet) =
+                                            Message::decode(&remaining_data[offset..])
+                                        {
+                                            let packet: F = packet;
+                                            let packet_size = packet.encoded_len();
+                                            if offset + packet_size <= remaining_data.len() {
+                                                on_packet(reader_id.clone(), packet);
+
+                                                // Store the latest raw data for sharing
+                                                let mut last_data = LAST_DATA.lock().await;
+                                                last_data.insert(
+                                                    reader_id.clone(),
+                                                    remaining_data[offset..offset + packet_size]
+                                                        .to_vec(),
+                                                );
+
+                                                processed_bytes += offset + packet_size;
+                                                found_packet = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if !found_packet {
+                                        // No valid packet found, remove one byte and try again
+                                        processed_bytes += 1;
+                                        if processed_bytes >= buffer.len() {
+                                            // No more data to process
+                                            break;
+                                        }
+                                    }
+                                }
                             }
+                        }
+
+                        // Remove processed bytes from buffer
+                        if processed_bytes > 0 {
+                            buffer.drain(0..processed_bytes);
                         }
                     }
                     Ok(_) => continue,
                     Err(e) => {
-                        eprintln!("[serialcom] Read error on {}: {}", reader_id, e);
+                        error!("[serialcom] Read error on {}: {}", reader_id, e);
                         break;
                     }
                 }
@@ -131,7 +187,9 @@ impl SerialManager {
         let connections = self.connections.lock().await;
         if let Some(conn) = connections.get(id) {
             if let Some(writer) = conn.writer.lock().await.as_mut() {
-                writer.write_all(&buf).await.map_err(|e| e.to_string())
+                writer.write_all(&buf).await.map_err(|e| e.to_string())?;
+                writer.flush().await.map_err(|e| e.to_string())?;
+                Ok(())
             } else {
                 Err("Writer not available".into())
             }
@@ -164,24 +222,20 @@ impl SerialManager {
             .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
             .map_err(|e| e.to_string())
     }
+
     pub async fn send_raw(&self, id: &str, data: Vec<u8>) -> Result<(), String> {
         let conn = self.connections.lock().await.get(id).cloned();
         if let Some(conn) = conn {
             if let Some(writer) = conn.writer.lock().await.as_mut() {
-                // Add length prefix (4 bytes, big-endian)
-                let length = data.len() as u32;
-                let length_bytes = length.to_be_bytes();
-                
-                // Write length prefix
-                writer.write_all(&length_bytes).await.map_err(|e| e.to_string())?;
-                // Write protobuf data
                 writer.write_all(&data).await.map_err(|e| e.to_string())?;
+                writer.flush().await.map_err(|e| e.to_string())?;
                 return Ok(());
             }
             return Err("Writer not initialized.".into());
         }
         Err("Connection not found.".into())
     }
+
     pub async fn list_connections(&self) -> Vec<SerialConnectionInfo> {
         self.connections
             .lock()
@@ -193,12 +247,15 @@ impl SerialManager {
             })
             .collect()
     }
+
     /// Start sharing data between two serial connections every 10ms
-pub async fn start_share(&self, from_id: String, to_id: String) -> Result<(), String> {
+    pub async fn start_share(&self, from_id: String, to_id: String) -> Result<(), String> {
         // Get destination connection
         let to_conn = {
             let connections = self.connections.lock().await;
-            connections.get(&to_id).cloned()
+            connections
+                .get(&to_id)
+                .cloned()
                 .ok_or_else(|| format!("Connection {} not found", to_id))?
         };
 

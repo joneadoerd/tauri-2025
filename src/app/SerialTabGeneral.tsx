@@ -39,10 +39,12 @@ export default function SerialTabGeneral() {
   const [connections, setConnections] = useState<SerialConnectionInfo[]>([]);
   const [data, setData] = useState<Record<string, { packet: Packet; timestamp: number }[]>>({});
   const [activeTab, setActiveTab] = useState<string>("");
+  // Define allowed ID prefixes
+  const idPrefixes = ['COM', 'USB', 'UART', 'DEV'];
   const [form, setForm] = useState({
-    id: "",
-    port: "",
-    baud: "115200",
+    id: '', // This will be the prefix
+    port: '',
+    baud: '115200',
     json: '{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }',
   });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
@@ -51,6 +53,7 @@ export default function SerialTabGeneral() {
   const [shareTo, setShareTo] = useState("");
   const [sharing, setSharing] = useState(false);
   const [packetTypes, setPacketTypes] = useState<string[]>(["Header", "Payload", "Command", "State"]);
+  const [packetCounts, setPacketCounts] = useState<Record<string, { count: number; lastReset: number }>>({});
 
   useEffect(() => {
     const init = async () => {
@@ -64,6 +67,8 @@ export default function SerialTabGeneral() {
 
   useEffect(() => {
     const unlistenAll: UnlistenFn[] = [];
+    let processingTimeout: NodeJS.Timeout | null = null;
+    
     const unlisten = listen("serial_packet", (event: Event<SerialPacketEvent>) => {
       const { id, packet } = event.payload;
       if (!packet) return;
@@ -78,18 +83,51 @@ export default function SerialTabGeneral() {
         normalizedPacket = packet;
       }
 
+      // Process immediately for real-time display
+      const now = Date.now();
+      
       setData((prev) => {
+        const currentPackets = prev[id] || [];
+        const newPacket = { packet: normalizedPacket, timestamp: now };
+        
+        // Keep only the last 1000 packets per connection for better performance
+        const updatedPackets = [...currentPackets, newPacket].slice(-1000);
+        
         const updated = {
           ...prev,
-          [id]: [...(prev[id] || []), { packet: normalizedPacket, timestamp: Date.now() }],
+          [id]: updatedPackets,
         };
         // Set the first tab as active if none is selected
         if (!activeTab) setActiveTab(id);
         return updated;
       });
+      
+      // Update packet count with higher frequency
+      setPacketCounts((prev) => {
+        const current = prev[id] || { count: 0, lastReset: now };
+        const timeSinceReset = now - current.lastReset;
+        
+        // Reset counter every 500ms for more responsive display
+        if (timeSinceReset >= 500) {
+          return {
+            ...prev,
+            [id]: { count: 1, lastReset: now }
+          };
+        } else {
+          return {
+            ...prev,
+            [id]: { count: current.count + 1, lastReset: current.lastReset }
+          };
+        }
+      });
     });
     unlisten.then((un) => unlistenAll.push(un));
-    return () => unlistenAll.forEach((fn) => fn());
+    return () => {
+      unlistenAll.forEach((fn) => fn());
+      if (processingTimeout) {
+        clearTimeout(processingTimeout);
+      }
+    };
   }, [activeTab]);
 
   useEffect(() => {
@@ -102,15 +140,65 @@ export default function SerialTabGeneral() {
   }, [connections]);
 
   const connect = async () => {
-    await startConnection(form.id, form.port, parseInt(form.baud), packetType);
+    // Only send the prefix to the backend
+    const prefix = form.id || idPrefixes[0];
+    await startConnection(prefix, form.port, parseInt(form.baud), packetType);
     const updated = await listConnections();
     setConnections(updated);
   };
 
   const disconnect = async (id: string, port: string, packetType: string) => {
     await stopConnection(id);
+    // Clear the received data for this connection
+    setData((prev) => {
+      const updated = { ...prev };
+      delete updated[id];
+      return updated;
+    });
+    // Clear logs for this connection
+    setLogs((prev) => {
+      const updated = { ...prev };
+      delete updated[id];
+      return updated;
+    });
+    // Clear packet counts for this connection
+    setPacketCounts((prev) => {
+      const updated = { ...prev };
+      delete updated[id];
+      return updated;
+    });
     const updated = await listConnections();
     setConnections(updated);
+  };
+
+  const clearData = (id: string) => {
+    setData((prev) => {
+      const updated = { ...prev };
+      if (updated[id]) {
+        updated[id] = [];
+      }
+      return updated;
+    });
+    setLogs((prev) => {
+      const updated = { ...prev };
+      if (updated[id]) {
+        updated[id] = [];
+      }
+      return updated;
+    });
+    setPacketCounts((prev) => {
+      const updated = { ...prev };
+      if (updated[id]) {
+        updated[id] = { count: 0, lastReset: Date.now() };
+      }
+      return updated;
+    });
+  };
+
+  const clearAllData = () => {
+    setData({});
+    setLogs({});
+    setPacketCounts({});
   };
 
   const send = async (id: string, port: string, packetType: string) => {
@@ -122,20 +210,20 @@ export default function SerialTabGeneral() {
       return;
     }
 
-    // Use the example data for the selected packet type
-    const exampleDataForType = exampleData[packetType] || JSON.parse(form.json);
-    
-    // Create a wrapper with type field that the backend expects
-    const wrapper = {
-      type: packetType,
-      payload: exampleDataForType,
-    };
+    // Parse the JSON and construct the Packet object
+    let packet: Packet = {};
+    const parsed = JSON.parse(form.json);
+    if (packetType === "Header") {
+      packet.header = parsed;
+    } else if (packetType === "Payload") {
+      packet.payload = parsed;
+    } // Add more types as needed
 
     try {
-      await sendPacket(id, JSON.stringify(wrapper));
+      await sendPacket(id, packet);
       setLogs((prev: Record<string, string[]>) => ({
         ...prev,
-        [id]: [...(prev[id] || []), `Sent ${packetType}: ${JSON.stringify(wrapper)}`],
+        [id]: [...(prev[id] || []), `Sent ${packetType}: ${JSON.stringify(packet)}`],
       }));
     } catch (error) {
       setLogs((prev: Record<string, string[]>) => ({
@@ -154,23 +242,24 @@ export default function SerialTabGeneral() {
     // Use the first available connection
     const connection = connections[0];
     const exampleDataForType = exampleData[packetType];
-    
+
     if (!exampleDataForType) {
       alert(`No example data for ${packetType}`);
       return;
     }
 
-    // Create a wrapper with type field that the backend expects
-    const wrapper = {
-      type: packetType,
-      payload: exampleDataForType,
-    };
+    let packet: Packet = {};
+    if (packetType === "Header") {
+      packet.header = exampleDataForType;
+    } else if (packetType === "Payload") {
+      packet.payload = exampleDataForType;
+    } // Add more types as needed
 
     try {
-      await sendPacket(connection.id, JSON.stringify(wrapper));
+      await sendPacket(connection.id, packet);
       setLogs((prev: Record<string, string[]>) => ({
         ...prev,
-        [connection.id]: [...(prev[connection.id] || []), `Sent ${packetType}: ${JSON.stringify(wrapper)}`],
+        [connection.id]: [...(prev[connection.id] || []), `Sent ${packetType}: ${JSON.stringify(packet)}`],
       }));
     } catch (error) {
       setLogs((prev: Record<string, string[]>) => ({
@@ -274,16 +363,14 @@ export default function SerialTabGeneral() {
           </div>
         </div>
         <div>
-          <Label>ID</Label>
+          <Label>ID Prefix</Label>
           <Select value={form.id} onValueChange={(v) => setForm((f) => ({ ...f, id: v }))}>
             <SelectTrigger>
-              <SelectValue placeholder="Select ID" />
+              <SelectValue placeholder="Select ID Prefix" />
             </SelectTrigger>
             <SelectContent>
-              {connections.filter((conn) => !!conn.id).map((conn) => (
-                <SelectItem key={conn.id} value={conn.id}>
-                  {conn.id}
-                </SelectItem>
+              {idPrefixes.map((prefix) => (
+                <SelectItem key={prefix} value={prefix}>{prefix}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -324,6 +411,9 @@ export default function SerialTabGeneral() {
         </div>
         <Button onClick={connect} className="self-end">
           Connect
+        </Button>
+        <Button onClick={clearAllData} variant="outline" className="self-end">
+          Clear All Data
         </Button>
       </div>
 
@@ -422,17 +512,22 @@ export default function SerialTabGeneral() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {Object.entries(data).map(([id, packets]) => (
-                  <div key={id} className="text-center p-3 bg-blue-50 rounded">
-                    <div className="text-2xl font-bold text-blue-600">{packets.length}</div>
-                    <div className="text-xs text-gray-600">Packets for {id}</div>
-                    {packets.length > 0 && (
-                      <div className="text-xs text-green-600">
-                        Latest: {new Date(packets[packets.length - 1].timestamp).toLocaleTimeString()}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {Object.entries(data).map(([id, packets]) => {
+                  const packetCount = packetCounts[id]?.count || 0;
+                  return (
+                    <div key={id} className="text-center p-3 bg-blue-50 rounded">
+                      <div className="text-2xl font-bold text-blue-600">{packets.length}</div>
+                      <div className="text-xs text-gray-600">Total Packets for {id}</div>
+                      <div className="text-lg font-semibold text-green-600">{packetCount}/s</div>
+                      <div className="text-xs text-gray-500">Packets per second</div>
+                      {packets.length > 0 && (
+                        <div className="text-xs text-green-600">
+                          Latest: {new Date(packets[packets.length - 1].timestamp).toLocaleTimeString()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -480,6 +575,7 @@ export default function SerialTabGeneral() {
             <div className="space-x-2">
               <Button onClick={() => send(conn.id, conn.port_name, "Header")}>Send Header</Button>
               <Button onClick={() => send(conn.id, conn.port_name, "Payload")}>Send Payload</Button>
+              <Button onClick={() => clearData(conn.id)} variant="outline">Clear Data</Button>
               <Button onClick={() => disconnect(conn.id, conn.port_name, "Header")} variant="destructive">
                 Disconnect
               </Button>
