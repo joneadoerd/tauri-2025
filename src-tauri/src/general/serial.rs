@@ -26,42 +26,6 @@ use super::timer_res::win_timer;
 static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
 
-// Add persistent data storage using Tauri store
-static PERSISTENT_DATA: Lazy<TokioMutex<HashMap<String, Vec<String>>>> =
-    Lazy::new(|| TokioMutex::new(HashMap::new()));
-
-// Channel for fast data storage
-static STORAGE_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String)>> = Lazy::new(|| {
-    let (tx, mut rx) = mpsc::unbounded_channel::<(String, String)>();
-
-    // Spawn storage worker
-    tokio::spawn(async move {
-        while let Some((connection_id, json_data)) = rx.recv().await {
-            // Validate connection_id
-            if connection_id.is_empty() {
-                error!("Empty connection_id received in storage worker");
-                continue;
-            }
-            
-            // Fast storage operation
-            let mut persistent_data = PERSISTENT_DATA.lock().await;
-            if let Some(connection_data) = persistent_data.get_mut(&connection_id) {
-                connection_data.push(json_data);
-                // Keep only last 1000 packets per connection to prevent memory issues
-                if connection_data.len() > 1000 {
-                    connection_data.drain(0..connection_data.len() - 1000);
-                }
-                trace_info!("[{}] Stored packet, total: {}", connection_id, connection_data.len());
-            } else {
-                persistent_data.insert(connection_id.clone(), vec![json_data]);
-                trace_info!("[{}] Created new storage entry", connection_id);
-            }
-        }
-    });
-
-    tx
-});
-
 // Channel for database/file logging
 static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = Lazy::new(|| {
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, String, String)>();
@@ -96,16 +60,16 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
                 error!("Empty connection_id received for logging");
                 continue;
             }
-            
+
             // Write to log file in Tauri app root
             let filename = log_dir.join(format!("connection_{}.log", connection_id));
-            
+
             // Ensure the log directory exists
             if let Err(e) = std::fs::create_dir_all(&log_dir) {
                 error!("Failed to create logs directory at {:?}: {}", log_dir, e);
                 continue;
             }
-            
+
             match OpenOptions::new().create(true).append(true).open(&filename) {
                 Ok(mut file) => {
                     if let Err(e) = writeln!(file, "[{}] {}", timestamp, json_data) {
@@ -137,10 +101,8 @@ pub struct SerialConnectionInfo {
 
 #[derive(Clone)]
 struct Connection {
-    id: String,
     port_name: String,
     writer: Arc<Mutex<Option<WriteHalf<SerialStream>>>>,
-    reader: Arc<Mutex<Option<tokio::io::ReadHalf<SerialStream>>>>,
     reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -163,7 +125,10 @@ impl SerialManager {
         let json_data = match serde_json::to_string(packet) {
             Ok(json) => json,
             Err(e) => {
-                error!("Failed to serialize packet to JSON for {}: {}", connection_id, e);
+                error!(
+                    "Failed to serialize packet to JSON for {}: {}",
+                    connection_id, e
+                );
                 return;
             }
         };
@@ -173,16 +138,12 @@ impl SerialManager {
             .format("%Y-%m-%d %H:%M:%S%.3f")
             .to_string();
 
-        // Send to storage channel (non-blocking)
-        if let Err(e) = STORAGE_CHANNEL.send((connection_id.to_string(), json_data.clone())) {
-            error!("Failed to send data to storage channel for {}: {}", connection_id, e);
-        } else {
-            trace_info!("[{}] Packet sent to storage channel", connection_id);
-        }
-
         // Send to logging channel (non-blocking)
         if let Err(e) = LOGGING_CHANNEL.send((connection_id.to_string(), json_data, timestamp)) {
-            error!("Failed to send data to logging channel for {}: {}", connection_id, e);
+            error!(
+                "Failed to send data to logging channel for {}: {}",
+                connection_id, e
+            );
         } else {
             trace_info!("[{}] Packet sent to logging channel", connection_id);
         }
@@ -206,42 +167,6 @@ impl SerialManager {
         if let Err(e) = LOGGING_CHANNEL.send((connection_id.to_string(), log_entry, timestamp)) {
             error!("Failed to send sent data to logging channel: {}", e);
         }
-    }
-
-    // Helper function to save packet as JSON to Tauri store
-    async fn save_packet_json(connection_id: &str, packet: &impl serde::Serialize) {
-        // Convert packet to JSON
-        let json_data = match serde_json::to_string(packet) {
-            Ok(json) => json,
-            Err(e) => {
-                error!("Failed to serialize packet to JSON: {}", e);
-                return;
-            }
-        };
-
-        // Save to persistent storage
-        let mut persistent_data = PERSISTENT_DATA.lock().await;
-        if let Some(connection_data) = persistent_data.get_mut(connection_id) {
-            connection_data.push(json_data);
-            // Keep only last 1000 packets per connection to prevent memory issues
-            if connection_data.len() > 1000 {
-                connection_data.drain(0..connection_data.len() - 1000);
-            }
-        } else {
-            persistent_data.insert(connection_id.to_string(), vec![json_data]);
-        }
-
-        trace_info!(
-            "[{}] Saved packet as JSON to persistent storage",
-            connection_id
-        );
-    }
-
-    // Helper function to save data to Tauri store
-    async fn save_to_tauri_store(connection_id: &str, data: &[String]) {
-        // This would be called when we want to persist data to Tauri store
-        // For now, we'll keep it in memory, but this can be extended to use Tauri store
-        trace_info!("[{}] Data ready for Tauri store persistence", connection_id);
     }
 
     pub async fn start<F: Message + Default + serde::Serialize>(
@@ -313,7 +238,9 @@ impl SerialManager {
                                             "[{}] Decoded packet, size: {} bytes, fields: {:?}",
                                             reader_id,
                                             packet_size,
-                                            serde_json::to_string(&packet).unwrap_or_else(|_| "serialization failed".to_string())
+                                            serde_json::to_string(&packet).unwrap_or_else(|_| {
+                                                "serialization failed".to_string()
+                                            })
                                         );
 
                                         // Process packet only once
@@ -328,7 +255,7 @@ impl SerialManager {
                                         );
 
                                         processed_bytes += packet_size;
-                                        
+
                                         trace_info!(
                                             "[{}] Successfully processed packet, moving {} bytes",
                                             reader_id,
@@ -352,14 +279,16 @@ impl SerialManager {
                                         processed_bytes,
                                         e
                                     );
-                                    
+
                                     // If we can't decode, try to find a valid packet boundary
                                     // Look for potential packet start by trying different offsets
                                     let mut found_packet = false;
                                     let search_limit = std::cmp::min(remaining_data.len(), 100);
-                                    
+
                                     for offset in 1..search_limit {
-                                        if let Ok(packet) = Message::decode(&remaining_data[offset..]) {
+                                        if let Ok(packet) =
+                                            Message::decode(&remaining_data[offset..])
+                                        {
                                             let packet: F = packet;
                                             let packet_size = packet.encoded_len();
                                             if offset + packet_size <= remaining_data.len() {
@@ -432,10 +361,8 @@ impl SerialManager {
         connections.insert(
             id.clone(),
             Connection {
-                id: id.clone(),
                 port_name: port_name.clone(),
                 writer,
-                reader,
                 reader_task: Arc::new(Mutex::new(Some(task))),
             },
         );
@@ -444,36 +371,8 @@ impl SerialManager {
         Ok(())
     }
 
-    pub async fn send(&self, id: &str, msg: impl prost::Message) -> Result<(), String> {
-        let mut buf = Vec::new();
-        msg.encode(&mut buf).map_err(|e| e.to_string())?;
-
-        trace_info!("[{}] Sending packet, size: {} bytes", id, buf.len());
-
-        let connections = self.connections.lock().await;
-        if let Some(conn) = connections.get(id) {
-            if let Some(writer) = conn.writer.lock().await.as_mut() {
-                writer.write_all(&buf).await.map_err(|e| e.to_string())?;
-                writer.flush().await.map_err(|e| e.to_string())?;
-                Self::log_sent_data(id, &buf);
-                trace_info!("[{}] Successfully sent packet", id);
-                Ok(())
-            } else {
-                Err("Writer not available".into())
-            }
-        } else {
-            Err(format!("No connection with ID '{}'", id))
-        }
-    }
-
     pub async fn stop(&self, id: &str) {
         if let Some(conn) = self.connections.lock().await.remove(id) {
-            // Save current data to Tauri store before stopping
-            let persistent_data = PERSISTENT_DATA.lock().await;
-            if let Some(data) = persistent_data.get(id) {
-                Self::save_to_tauri_store(id, data).await;
-            }
-
             *conn.writer.lock().await = None;
             if let Some(task) = conn.reader_task.lock().await.take() {
                 task.abort();
@@ -483,13 +382,7 @@ impl SerialManager {
 
     pub async fn stop_all(&self) {
         let mut conns = self.connections.lock().await;
-        for (id, conn) in conns.drain() {
-            // Save current data to Tauri store before stopping
-            let persistent_data = PERSISTENT_DATA.lock().await;
-            if let Some(data) = persistent_data.get(&id) {
-                Self::save_to_tauri_store(&id, data).await;
-            }
-
+        for (_id, conn) in conns.drain() {
             *conn.writer.lock().await = None;
             if let Some(task) = conn.reader_task.lock().await.take() {
                 task.abort();
@@ -505,7 +398,7 @@ impl SerialManager {
 
     pub async fn send_raw(&self, id: &str, data: Vec<u8>) -> Result<(), String> {
         trace_info!("[{}] Sending raw data, size: {} bytes", id, data.len());
-        
+
         let conn = self.connections.lock().await.get(id).cloned();
         if let Some(conn) = conn {
             if let Some(writer) = conn.writer.lock().await.as_mut() {
@@ -625,41 +518,5 @@ impl SerialManager {
         }
         #[cfg(windows)]
         win_timer::disable();
-    }
-
-    // Add function to get saved data for a connection
-    pub async fn get_saved_data(&self, connection_id: &str) -> Vec<String> {
-        let persistent_data = PERSISTENT_DATA.lock().await;
-        persistent_data
-            .get(connection_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    // Add function to clear saved data for a connection
-    pub async fn clear_saved_data(&self, connection_id: &str) {
-        let mut persistent_data = PERSISTENT_DATA.lock().await;
-        persistent_data.remove(connection_id);
-    }
-
-    // Add function to get all saved data
-    pub async fn get_all_saved_data(&self) -> HashMap<String, Vec<String>> {
-        let persistent_data = PERSISTENT_DATA.lock().await;
-        persistent_data.clone()
-    }
-
-    // Add function to get storage statistics
-    pub async fn get_storage_stats(&self) -> HashMap<String, usize> {
-        let persistent_data = PERSISTENT_DATA.lock().await;
-        persistent_data
-            .iter()
-            .map(|(id, data)| (id.clone(), data.len()))
-            .collect()
-    }
-
-    // Add function to clear all saved data
-    pub async fn clear_all_saved_data(&self) {
-        let mut persistent_data = PERSISTENT_DATA.lock().await;
-        persistent_data.clear();
     }
 }

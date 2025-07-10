@@ -23,9 +23,16 @@ import {
 } from "@/lib/serial";
 import { listen } from "@tauri-apps/api/event";
 import { UnlistenFn, Event } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 // Update these imports to the correct paths for your project structure
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -47,16 +54,18 @@ import React from "react"; // Added for React.Fragment
 export default function SerialTabGeneral() {
   const [ports, setPorts] = useState<string[]>([]);
   const [connections, setConnections] = useState<SerialConnectionInfo[]>([]);
-  const [data, setData] = useState<Record<string, { packet: Packet; timestamp: number; id?: string }[]>>({});
+  const [data, setData] = useState<
+    Record<string, { packet: Packet; timestamp: number; id?: string }[]>
+  >({});
   const [activeTab, setActiveTab] = useState<string>("");
   // Define allowed ID prefixes
-  const idPrefixes = ['COM', 'USB', 'UART', 'DEV'];
+  const idPrefixes = ["COM", "USB", "UART", "DEV"];
   // Track processed packets to prevent duplicates
   const [processedPackets] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({
-    id: '', // This will be the prefix
-    port: '',
-    baud: '115200',
+    id: "", // This will be the prefix
+    port: "",
+    baud: "115200",
     json: '{ "id": 1, "length": 2, "checksum": 3, "version": 4, "flags": 5 }',
   });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
@@ -64,25 +73,41 @@ export default function SerialTabGeneral() {
   const [shareFrom, setShareFrom] = useState("");
   const [shareTo, setShareTo] = useState("");
   const [sharing, setSharing] = useState(false);
-  const [packetTypes, setPacketTypes] = useState<string[]>(["Header", "Payload", "Command", "State"]);
-  const [packetCounts, setPacketCounts] = useState<Record<string, { 
-    count: number; 
-    lastReset: number;
-    headerCount: number;
-    payloadCount: number;
-    totalCount: number;
-  }>>({});
+  const [packetTypes, setPacketTypes] = useState<string[]>([
+    "Header",
+    "Payload",
+    "Command",
+    "State",
+  ]);
+  const [packetCounts, setPacketCounts] = useState<
+    Record<
+      string,
+      {
+        count: number;
+        lastReset: number;
+        headerCount: number;
+        payloadCount: number;
+        totalCount: number;
+      }
+    >
+  >({});
   const [savedData, setSavedData] = useState<Record<string, string[]>>({});
-  const [showSavedData, setShowSavedData] = useState<Record<string, boolean>>({});
+  const [showSavedData, setShowSavedData] = useState<Record<string, boolean>>(
+    {}
+  );
   const [storageStats, setStorageStats] = useState<Record<string, number>>({});
   const [logFiles, setLogFiles] = useState<string[]>([]);
   const [logData, setLogData] = useState<Record<string, string[]>>({});
   const [showLogData, setShowLogData] = useState<Record<string, boolean>>({});
   const [logsDirectory, setLogsDirectory] = useState<string>("");
   // Add global packet type counter state
-  const [globalPacketTypeCounts, setGlobalPacketTypeCounts] = useState<Record<string, number>>({});
+  const [globalPacketTypeCounts, setGlobalPacketTypeCounts] = useState<
+    Record<string, number>
+  >({});
   // Add per-connection packet type counter state
-  const [connectionPacketTypeCounts, setConnectionPacketTypeCounts] = useState<Record<string, Record<string, number>>>({});
+  const [connectionPacketTypeCounts, setConnectionPacketTypeCounts] = useState<
+    Record<string, Record<string, number>>
+  >({});
 
   useEffect(() => {
     const init = async () => {
@@ -96,149 +121,172 @@ export default function SerialTabGeneral() {
 
   useEffect(() => {
     const unlistenAll: UnlistenFn[] = [];
-    
-    const unlisten = listen("serial_packet", (event: Event<SerialPacketEvent>) => {
-      const { id, packet } = event.payload;
-      if (!packet) {
-        console.log("Received event with no packet");
-        return;
-      }
 
-      console.log(`Received packet for ${id}:`, packet);
+    const unlisten = listen(
+      "serial_packet",
+      (event: Event<SerialPacketEvent>) => {
+        const { id, packet } = event.payload;
+        if (!packet) {
+          console.log("Received event with no packet");
+          return;
+        }
 
-      // Process the packet - keep original structure
-      let normalizedPacket: Packet = packet;
+        console.log(`Received packet for ${id}:`, packet);
 
-      // Determine packet type from the kind structure first
-      let packetType = 'unknown';
-      const packetAny = normalizedPacket as any; // Type assertion to handle kind structure
-      if (packetAny.kind) {
-        if (packetAny.kind.Header) packetType = 'header';
-        else if (packetAny.kind.Payload) packetType = 'payload';
-        else if (packetAny.kind.Command) packetType = 'command';
-        else if (packetAny.kind.State) packetType = 'state';
-      } else {
-        // Fallback: check top-level fields for protobuf-style packets
-        if (packetAny.header) packetType = 'header';
-        else if (packetAny.payload) packetType = 'payload';
-        else if (packetAny.command) packetType = 'command';
-        else if (packetAny.state) packetType = 'state';
-      }
-      
-      console.log(`Detected packet type: ${packetType} for ${id}`);
+        // Process the packet - keep original structure
+        let normalizedPacket: Packet = packet;
 
-      // Process immediately for real-time display
-      const now = Date.now();
-      
-      // Create a unique fingerprint for this packet to prevent duplicates
-      const packetFingerprint = `${id}_${JSON.stringify(normalizedPacket)}_${now}`;
-      
-      // Check if we've already processed this exact packet
-      if (processedPackets.has(packetFingerprint)) {
-        console.log(`Skipping already processed packet for ${id}`);
-        return;
-      }
-      
-      // Add to processed set
-      processedPackets.add(packetFingerprint);
-
-      // Update global packet type counter
-      setGlobalPacketTypeCounts(prev => ({
-        ...prev,
-        [packetType]: (prev[packetType] || 0) + 1
-      }));
-      
-      setData((prev) => {
-        const currentPackets = prev[id] || [];
-        
-        // Create a unique identifier for this packet to prevent duplicates
-        const packetId = `${id}_${now}_${Math.random().toString(36).substr(2, 9)}`;
-        const newPacket = { 
-          packet: normalizedPacket, 
-          timestamp: now,
-          id: packetId,
-          packetType: packetType // Store the detected packet type
-        };
-        
-        // Keep only the last 100 packets per connection to improve performance
-        const updatedPackets = [...currentPackets, newPacket].slice(-100);
-        
-        const updated = {
-          ...prev,
-          [id]: updatedPackets,
-        };
-        // Set the first tab as active if none is selected
-        if (!activeTab) setActiveTab(id);
-        
-        console.log(`Updated data for ${id}, total packets: ${updatedPackets.length}`);
-        return updated;
-      });
-      
-      // Update packet count with real-time tracking and type-specific counts
-      setPacketCounts((prev) => {
-        const current = prev[id] || { 
-          count: 0, 
-          lastReset: now, 
-          headerCount: 0, 
-          payloadCount: 0, 
-          totalCount: 0 
-        };
-        const timeSinceReset = now - current.lastReset;
-        
-        // Use the packetType we already determined above
-        console.log(`Counting packet for ${id}, type: ${packetType}`);
-        
-        // Reset counter every 1000ms for accurate per-second display
-        if (timeSinceReset >= 1000) {
-          console.log(`Resetting packet count for ${id}, type: ${packetType}`);
-          return {
-            ...prev,
-            [id]: { 
-              count: 1, 
-              lastReset: now,
-              headerCount: packetType === 'header' ? 1 : 0,
-              payloadCount: packetType === 'payload' ? 1 : 0,
-              totalCount: current.totalCount + 1
-            }
-          };
+        // Determine packet type from the kind structure first
+        let packetType = "unknown";
+        const packetAny = normalizedPacket as any; // Type assertion to handle kind structure
+        if (packetAny.kind) {
+          if (packetAny.kind.Header) packetType = "header";
+          else if (packetAny.kind.Payload) packetType = "payload";
+          else if (packetAny.kind.Command) packetType = "command";
+          else if (packetAny.kind.State) packetType = "state";
         } else {
-          const newCount = current.count + 1;
-          const newHeaderCount = current.headerCount + (packetType === 'header' ? 1 : 0);
-          const newPayloadCount = current.payloadCount + (packetType === 'payload' ? 1 : 0);
-          console.log(`Updated packet count for ${id}: ${newCount}/s (H:${newHeaderCount}, P:${newPayloadCount}, T:${current.totalCount + 1})`);
+          // Fallback: check top-level fields for protobuf-style packets
+          if (packetAny.header) packetType = "header";
+          else if (packetAny.payload) packetType = "payload";
+          else if (packetAny.command) packetType = "command";
+          else if (packetAny.state) packetType = "state";
+        }
+
+        console.log(`Detected packet type: ${packetType} for ${id}`);
+
+        // Process immediately for real-time display
+        const now = Date.now();
+
+        // Create a unique fingerprint for this packet to prevent duplicates
+        const packetFingerprint = `${id}_${JSON.stringify(
+          normalizedPacket
+        )}_${now}`;
+
+        // Check if we've already processed this exact packet
+        if (processedPackets.has(packetFingerprint)) {
+          console.log(`Skipping already processed packet for ${id}`);
+          return;
+        }
+
+        // Add to processed set
+        processedPackets.add(packetFingerprint);
+
+        // Update global packet type counter
+        setGlobalPacketTypeCounts((prev) => ({
+          ...prev,
+          [packetType]: (prev[packetType] || 0) + 1,
+        }));
+
+        setData((prev) => {
+          const currentPackets = prev[id] || [];
+
+          // Create a unique identifier for this packet to prevent duplicates
+          const packetId = `${id}_${now}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          const newPacket = {
+            packet: normalizedPacket,
+            timestamp: now,
+            id: packetId,
+            packetType: packetType, // Store the detected packet type
+          };
+
+          // Keep only the last 100 packets per connection to improve performance
+          const updatedPackets = [...currentPackets, newPacket].slice(-100);
+
+          const updated = {
+            ...prev,
+            [id]: updatedPackets,
+          };
+          // Set the first tab as active if none is selected
+          if (!activeTab) setActiveTab(id);
+
+          console.log(
+            `Updated data for ${id}, total packets: ${updatedPackets.length}`
+          );
+          return updated;
+        });
+
+        // Update packet count with real-time tracking and type-specific counts
+        setPacketCounts((prev) => {
+          const current = prev[id] || {
+            count: 0,
+            lastReset: now,
+            headerCount: 0,
+            payloadCount: 0,
+            totalCount: 0,
+          };
+          const timeSinceReset = now - current.lastReset;
+
+          // Use the packetType we already determined above
+          console.log(`Counting packet for ${id}, type: ${packetType}`);
+
+          // Reset counter every 1000ms for accurate per-second display
+          if (timeSinceReset >= 1000) {
+            console.log(
+              `Resetting packet count for ${id}, type: ${packetType}`
+            );
+            return {
+              ...prev,
+              [id]: {
+                count: 1,
+                lastReset: now,
+                headerCount: packetType === "header" ? 1 : 0,
+                payloadCount: packetType === "payload" ? 1 : 0,
+                totalCount: current.totalCount + 1,
+              },
+            };
+          } else {
+            const newCount = current.count + 1;
+            const newHeaderCount =
+              current.headerCount + (packetType === "header" ? 1 : 0);
+            const newPayloadCount =
+              current.payloadCount + (packetType === "payload" ? 1 : 0);
+            console.log(
+              `Updated packet count for ${id}: ${newCount}/s (H:${newHeaderCount}, P:${newPayloadCount}, T:${
+                current.totalCount + 1
+              })`
+            );
+            return {
+              ...prev,
+              [id]: {
+                count: newCount,
+                lastReset: current.lastReset,
+                headerCount: newHeaderCount,
+                payloadCount: newPayloadCount,
+                totalCount: current.totalCount + 1,
+              },
+            };
+          }
+        });
+
+        // Update per-connection packet type counter
+        setConnectionPacketTypeCounts((prev) => ({
+          ...prev,
+          [id]: {
+            ...(prev[id] || {}),
+            [packetType]: (prev[id]?.[packetType] || 0) + 1,
+          },
+        }));
+
+        // Update logs with packet details
+        setLogs((prev) => {
+          const currentLogs = prev[id] || [];
+          const logEntry = `[${new Date(
+            now
+          ).toLocaleTimeString()}] Received packet: ${JSON.stringify(
+            normalizedPacket,
+            null,
+            2
+          )}`;
+          const updatedLogs = [...currentLogs, logEntry].slice(-50); // Keep last 50 log entries
           return {
             ...prev,
-            [id]: { 
-              count: newCount, 
-              lastReset: current.lastReset,
-              headerCount: newHeaderCount,
-              payloadCount: newPayloadCount,
-              totalCount: current.totalCount + 1
-            }
+            [id]: updatedLogs,
           };
-        }
-      });
-
-      // Update per-connection packet type counter
-      setConnectionPacketTypeCounts(prev => ({
-        ...prev,
-        [id]: {
-          ...(prev[id] || {}),
-          [packetType]: ((prev[id]?.[packetType] || 0) + 1)
-        }
-      }));
-
-      // Update logs with packet details
-      setLogs((prev) => {
-        const currentLogs = prev[id] || [];
-        const logEntry = `[${new Date(now).toLocaleTimeString()}] Received packet: ${JSON.stringify(normalizedPacket, null, 2)}`;
-        const updatedLogs = [...currentLogs, logEntry].slice(-50); // Keep last 50 log entries
-        return {
-          ...prev,
-          [id]: updatedLogs
-        };
-      });
-    });
+        });
+      }
+    );
     unlisten.then((un) => unlistenAll.push(un));
     return () => {
       unlistenAll.forEach((fn) => fn());
@@ -247,10 +295,10 @@ export default function SerialTabGeneral() {
 
   useEffect(() => {
     if (connections.length > 0 && !shareFrom) {
-      setShareFrom(connections.find(conn => !!conn.id)?.id ?? "");
+      setShareFrom(connections.find((conn) => !!conn.id)?.id ?? "");
     }
     if (connections.length > 0 && !shareTo) {
-      setShareTo(connections.find(conn => !!conn.id)?.id ?? "");
+      setShareTo(connections.find((conn) => !!conn.id)?.id ?? "");
     }
   }, [connections]);
 
@@ -261,7 +309,13 @@ export default function SerialTabGeneral() {
     const updated = await listConnections();
     setConnections(updated);
   };
-
+  function clearAllStates() {
+    setConnections([]);
+    setData({});
+    setLogs({});
+    setPacketCounts({});
+    setConnectionPacketTypeCounts({});
+  }
   const disconnect = async (id: string, port: string, packetType: string) => {
     await stopConnection(id);
     // Clear the received data for this connection
@@ -310,12 +364,12 @@ export default function SerialTabGeneral() {
     setPacketCounts((prev) => {
       const updated = { ...prev };
       if (updated[id]) {
-        updated[id] = { 
-          count: 0, 
+        updated[id] = {
+          count: 0,
           lastReset: Date.now(),
           headerCount: 0,
           payloadCount: 0,
-          totalCount: 0
+          totalCount: 0,
         };
       }
       return updated;
@@ -330,70 +384,11 @@ export default function SerialTabGeneral() {
     });
   };
 
-  const loadSavedData = async (connectionId: string) => {
-    try {
-      const data = await getSavedData(connectionId);
-      setSavedData(prev => ({
-        ...prev,
-        [connectionId]: data
-      }));
-      setShowSavedData(prev => ({
-        ...prev,
-        [connectionId]: true
-      }));
-    } catch (error) {
-      console.error("Failed to load saved data:", error);
-    }
-  };
-
-  const clearSavedDataForConnection = async (connectionId: string) => {
-    try {
-      await clearSavedData(connectionId);
-      setSavedData(prev => {
-        const updated = { ...prev };
-        delete updated[connectionId];
-        return updated;
-      });
-      setShowSavedData(prev => ({
-        ...prev,
-        [connectionId]: false
-      }));
-    } catch (error) {
-      console.error("Failed to clear saved data:", error);
-    }
-  };
-
-  const toggleSavedData = (connectionId: string) => {
-    setShowSavedData(prev => ({
-      ...prev,
-      [connectionId]: !prev[connectionId]
-    }));
-  };
-
-  const loadStorageStats = async () => {
-    try {
-      const stats = await getStorageStats();
-      setStorageStats(stats);
-    } catch (error) {
-      console.error("Failed to load storage stats:", error);
-    }
-  };
-
-  const clearAllData = async () => {
-    try {
-      await clearAllSavedData();
-      setSavedData({});
-      setStorageStats({});
-      setShowSavedData({});
-    } catch (error) {
-      console.error("Failed to clear all data:", error);
-    }
-  };
-
   const loadLogFiles = async () => {
     try {
       const files = await listLogFiles();
       setLogFiles(files);
+      console.log("Loaded log files:", files);
     } catch (error) {
       console.error("Failed to load log files:", error);
     }
@@ -422,13 +417,13 @@ export default function SerialTabGeneral() {
   const loadLogData = async (connectionId: string) => {
     try {
       const data = await readLogFile(connectionId);
-      setLogData(prev => ({
+      setLogData((prev) => ({
         ...prev,
-        [connectionId]: data
+        [connectionId]: data,
       }));
-      setShowLogData(prev => ({
+      setShowLogData((prev) => ({
         ...prev,
-        [connectionId]: true
+        [connectionId]: true,
       }));
     } catch (error) {
       console.error("Failed to load log data:", error);
@@ -436,9 +431,9 @@ export default function SerialTabGeneral() {
   };
 
   const toggleLogData = (connectionId: string) => {
-    setShowLogData(prev => ({
+    setShowLogData((prev) => ({
       ...prev,
-      [connectionId]: !prev[connectionId]
+      [connectionId]: !prev[connectionId],
     }));
   };
 
@@ -460,14 +455,16 @@ export default function SerialTabGeneral() {
       packet = { kind: { Header: exampleDataForType } };
     } else if (packetType === "Payload") {
       // Ensure data is properly formatted as Uint8Array
-      const payloadData = exampleDataForType.data ? new Uint8Array(exampleDataForType.data) : new Uint8Array();
-      packet = { 
+      const payloadData = exampleDataForType.data
+        ? new Uint8Array(exampleDataForType.data)
+        : new Uint8Array();
+      packet = {
         kind: {
           Payload: {
             ...exampleDataForType,
-            data: payloadData
-          }
-        }
+            data: payloadData,
+          },
+        },
       };
     } else {
       packet = { kind: { [packetType]: exampleDataForType } };
@@ -478,7 +475,10 @@ export default function SerialTabGeneral() {
       await sendPacket(id, packet);
       setLogs((prev: Record<string, string[]>) => ({
         ...prev,
-        [id]: [...(prev[id] || []), `Sent ${packetType}: ${JSON.stringify(packet)}`],
+        [id]: [
+          ...(prev[id] || []),
+          `Sent ${packetType}: ${JSON.stringify(packet)}`,
+        ],
       }));
     } catch (error) {
       console.error(`Error sending ${packetType}:`, error);
@@ -518,13 +518,19 @@ export default function SerialTabGeneral() {
       await sendPacket(connection.id, packet);
       setLogs((prev: Record<string, string[]>) => ({
         ...prev,
-        [connection.id]: [...(prev[connection.id] || []), `Sent example ${packetType}: ${JSON.stringify(packet)}`],
+        [connection.id]: [
+          ...(prev[connection.id] || []),
+          `Sent example ${packetType}: ${JSON.stringify(packet)}`,
+        ],
       }));
     } catch (error) {
       console.error(`Error sending example ${packetType}:`, error);
       setLogs((prev: Record<string, string[]>) => ({
         ...prev,
-        [connection.id]: [...(prev[connection.id] || []), `Error sending example ${packetType}: ${error}`],
+        [connection.id]: [
+          ...(prev[connection.id] || []),
+          `Error sending example ${packetType}: ${error}`,
+        ],
       }));
     }
   };
@@ -555,6 +561,11 @@ export default function SerialTabGeneral() {
     setConnections(updated);
   };
 
+  async function disconnectAllConnections() {
+    await invoke("disconnect_all_connections");
+    clearAllStates();
+  }
+
   // Example/template data for each packet type
   const exampleData: Record<string, any> = {
     Header: {
@@ -562,23 +573,27 @@ export default function SerialTabGeneral() {
       length: 42,
       checksum: 1234,
       version: 1,
-      flags: 0
+      flags: 0,
     },
     Payload: {
       type_value: 2,
       data: [22], // "Hello" as bytes
       size: 5,
-      encoding: "utf8"
-    }
+      encoding: "utf8",
+    },
   };
 
-    return (
+  return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Serial Communication Monitor</h1>
-          <p className="text-muted-foreground">Real-time packet monitoring and analysis</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Serial Communication Monitor
+          </h1>
+          <p className="text-muted-foreground">
+            Real-time packet monitoring and analysis
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={handleInitComs} className="flex items-center gap-2">
@@ -597,14 +612,23 @@ export default function SerialTabGeneral() {
                 <Activity className="h-5 w-5" />
                 All Packets Received by Type
               </CardTitle>
-              <CardDescription>Total packets received, grouped by type (all connections)</CardDescription>
+              <CardDescription>
+                Total packets received, grouped by type (all connections)
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4">
                 {Object.entries(globalPacketTypeCounts).map(([type, count]) => (
-                  <div key={type} className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px]">
-                    <span className="text-lg font-bold text-blue-700 capitalize">{type}</span>
-                    <span className="text-2xl font-mono text-green-700">{count}</span>
+                  <div
+                    key={type}
+                    className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px]"
+                  >
+                    <span className="text-lg font-bold text-blue-700 capitalize">
+                      {type}
+                    </span>
+                    <span className="text-2xl font-mono text-green-700">
+                      {count}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -616,7 +640,7 @@ export default function SerialTabGeneral() {
       {/* Scroll to top button */}
       <div className="fixed bottom-4 right-4 z-50">
         <Button
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           size="sm"
           variant="outline"
           className="rounded-full w-10 h-10 p-0 shadow-lg"
@@ -671,13 +695,18 @@ export default function SerialTabGeneral() {
         </div> */}
         <div>
           <Label>ID Prefix</Label>
-          <Select value={form.id} onValueChange={(v) => setForm((f) => ({ ...f, id: v }))}>
+          <Select
+            value={form.id}
+            onValueChange={(v) => setForm((f) => ({ ...f, id: v }))}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Select ID Prefix" />
             </SelectTrigger>
             <SelectContent>
               {idPrefixes.map((prefix) => (
-                <SelectItem key={prefix} value={prefix}>{prefix}</SelectItem>
+                <SelectItem key={prefix} value={prefix}>
+                  {prefix}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -701,11 +730,13 @@ export default function SerialTabGeneral() {
               <SelectValue placeholder="Select Port" />
             </SelectTrigger>
             <SelectContent>
-              {ports.filter((port) => port !== "").map((port, index) => (
-                <SelectItem key={port + index} value={port}>
-                  {port}
-                </SelectItem>
-              ))}
+              {ports
+                .filter((port) => port !== "")
+                .map((port, index) => (
+                  <SelectItem key={port + index} value={port}>
+                    {port}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -719,19 +750,27 @@ export default function SerialTabGeneral() {
         <Button onClick={connect} className="self-end">
           Connect
         </Button>
-        <Button onClick={clearAllData} variant="outline" className="self-end">
-          Clear All Data
+
+        <Button onClick={disconnectAllConnections} variant="destructive">
+          Disconnect All Connections
         </Button>
-        <Button onClick={loadStorageStats} variant="outline" className="self-end">
-          Load Stats
-        </Button>
+
         <Button onClick={loadLogFiles} variant="outline" className="self-end">
           Load Log Files
         </Button>
-        <Button onClick={loadLogsDirectory} variant="outline" className="self-end">
+
+        <Button
+          onClick={loadLogsDirectory}
+          variant="outline"
+          className="self-end"
+        >
           Get Logs Path
         </Button>
-        <Button onClick={loadAppRootDirectory} variant="outline" className="self-end">
+        <Button
+          onClick={loadAppRootDirectory}
+          variant="outline"
+          className="self-end"
+        >
           Get App Root
         </Button>
       </div>
@@ -746,6 +785,50 @@ export default function SerialTabGeneral() {
 
       <Separator />
       <div className="flex items-center gap-4">
+        {logFiles.length > 0 ? (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span>Log Files</span>
+                <span className="text-xs text-muted-foreground">
+                  ({logFiles.length})
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="divide-y divide-gray-200">
+                {logFiles.map((file) => (
+                  <li key={file} className="py-2 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="font-mono text-blue-700 text-sm">
+                      {file}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Button
+                variant="destructive"
+                className="mt-4"
+                onClick={async () => {
+                  setLogFiles([]);
+                  // Optionally, call a backend command to delete log files here
+                  // await invoke("clear_log_files");
+                }}
+              >
+                Clear Log Files
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Log Files</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-gray-500">No log files found.</div>
+            </CardContent>
+          </Card>
+        )}
         <div>
           <Label>Share From</Label>
           <Select value={shareFrom} onValueChange={setShareFrom}>
@@ -753,11 +836,13 @@ export default function SerialTabGeneral() {
               <SelectValue placeholder="From Connection" />
             </SelectTrigger>
             <SelectContent>
-              {connections.filter((conn) => !!conn.id).map((conn) => (
-                <SelectItem key={conn.id} value={conn.id}>
-                  {conn.id}
-                </SelectItem>
-              ))}
+              {connections
+                .filter((conn) => !!conn.id)
+                .map((conn) => (
+                  <SelectItem key={conn.id} value={conn.id}>
+                    {conn.id}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -768,11 +853,13 @@ export default function SerialTabGeneral() {
               <SelectValue placeholder="To Connection" />
             </SelectTrigger>
             <SelectContent>
-              {connections.filter((conn) => !!conn.id).map((conn) => (
-                <SelectItem key={conn.id} value={conn.id}>
-                  {conn.id}
-                </SelectItem>
-              ))}
+              {connections
+                .filter((conn) => !!conn.id)
+                .map((conn) => (
+                  <SelectItem key={conn.id} value={conn.id}>
+                    {conn.id}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -794,12 +881,17 @@ export default function SerialTabGeneral() {
                 <Activity className="h-5 w-5" />
                 Real-time Packet Counters
               </CardTitle>
-              <CardDescription>Live packet statistics for each connection</CardDescription>
+              <CardDescription>
+                Live packet statistics for each connection
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Object.entries(packetCounts).map(([connectionId, counts]) => (
-                  <Card key={connectionId} className="border-l-4 border-l-green-500">
+                  <Card
+                    key={connectionId}
+                    className="border-l-4 border-l-green-500"
+                  >
                     <CardHeader className="pb-3">
                       <CardTitle className="text-lg flex items-center justify-between">
                         <span className="font-mono">{connectionId}</span>
@@ -811,17 +903,27 @@ export default function SerialTabGeneral() {
                     <CardContent className="pt-0">
                       <div className="grid grid-cols-2 gap-4">
                         {connectionPacketTypeCounts[connectionId] ? (
-                          Object.entries(connectionPacketTypeCounts[connectionId]).map(([type, count]) => (
+                          Object.entries(
+                            connectionPacketTypeCounts[connectionId]
+                          ).map(([type, count]) => (
                             <div key={type} className="text-center">
-                              <div className="text-2xl font-bold text-blue-600">{count}</div>
-                              <div className="text-xs text-gray-500 capitalize">{type}</div>
+                              <div className="text-2xl font-bold text-blue-600">
+                                {count}
+                              </div>
+                              <div className="text-xs text-gray-500 capitalize">
+                                {type}
+                              </div>
                             </div>
                           ))
                         ) : (
-                          <div className="text-center col-span-2 text-gray-400">No packets yet</div>
+                          <div className="text-center col-span-2 text-gray-400">
+                            No packets yet
+                          </div>
                         )}
                         <div className="text-center col-span-2">
-                          <div className="text-lg font-bold text-green-600">{counts.totalCount}</div>
+                          <div className="text-lg font-bold text-green-600">
+                            {counts.totalCount}
+                          </div>
                           <div className="text-xs text-gray-500">Total</div>
                         </div>
                       </div>
@@ -839,35 +941,50 @@ export default function SerialTabGeneral() {
         <div className="mt-4">
           <Card className="p-4">
             <CardHeader>
-              <CardTitle className="text-sm font-mono">Storage Statistics</CardTitle>
+              <CardTitle className="text-sm font-mono">
+                Storage Statistics
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {Object.entries(storageStats).map(([connectionId, packetCount]) => (
-                  <div key={connectionId} className="text-center p-3 bg-blue-50 rounded">
-                    <div className="text-lg font-bold text-blue-600">{packetCount}</div>
-                    <div className="text-xs text-gray-600">Saved Packets</div>
-                    <div className="text-xs text-blue-500">{connectionId}</div>
-                  </div>
-                ))}
+                {Object.entries(storageStats).map(
+                  ([connectionId, packetCount]) => (
+                    <div
+                      key={connectionId}
+                      className="text-center p-3 bg-blue-50 rounded"
+                    >
+                      <div className="text-lg font-bold text-blue-600">
+                        {packetCount}
+                      </div>
+                      <div className="text-xs text-gray-600">Saved Packets</div>
+                      <div className="text-xs text-blue-500">
+                        {connectionId}
+                      </div>
+                    </div>
+                  )
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
       )}
 
-                {/* Debug Information */}
+      {/* Debug Information */}
       {(logsDirectory || appRootDirectory) && (
         <div className="mt-4">
           <Card className="p-4">
             <CardHeader>
-              <CardTitle className="text-sm font-mono">Debug Information</CardTitle>
+              <CardTitle className="text-sm font-mono">
+                Debug Information
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {appRootDirectory && (
                   <div>
-                    <div className="text-xs font-semibold text-gray-600 mb-1">App Root Directory:</div>
+                    <div className="text-xs font-semibold text-gray-600 mb-1">
+                      App Root Directory:
+                    </div>
                     <div className="bg-blue-50 p-2 rounded font-mono text-sm">
                       {appRootDirectory}
                     </div>
@@ -875,18 +992,25 @@ export default function SerialTabGeneral() {
                 )}
                 {logsDirectory && (
                   <div>
-                    <div className="text-xs font-semibold text-gray-600 mb-1">Logs Directory:</div>
+                    <div className="text-xs font-semibold text-gray-600 mb-1">
+                      Logs Directory:
+                    </div>
                     <div className="bg-gray-100 p-2 rounded font-mono text-sm">
                       {logsDirectory}
                     </div>
                   </div>
                 )}
                 <div>
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Connection Status:</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">
+                    Connection Status:
+                  </div>
                   <div className="bg-yellow-50 p-2 rounded font-mono text-sm">
-                    Active Connections: {connections.length} | 
-                    Total Packets: {Object.values(data).reduce((sum, packets) => sum + packets.length, 0)} |
-                    Active Tabs: {Object.keys(data).length}
+                    Active Connections: {connections.length} | Total Packets:{" "}
+                    {Object.values(data).reduce(
+                      (sum, packets) => sum + packets.length,
+                      0
+                    )}{" "}
+                    | Active Tabs: {Object.keys(data).length}
                   </div>
                 </div>
               </div>
@@ -895,10 +1019,10 @@ export default function SerialTabGeneral() {
         </div>
       )}
 
-              {/* Received Data Display */}
+      {/* Received Data Display */}
       <div className="mt-8">
         <h3 className="text-lg font-bold mb-4">Real-time Packet Data</h3>
-        
+
         {/* Real-time Packet Display */}
         <div className="mb-6">
           <Card className="p-4">
@@ -918,7 +1042,7 @@ export default function SerialTabGeneral() {
                     size="sm"
                     onClick={() => {
                       if (activeTab) {
-                        setData(prev => ({ ...prev, [activeTab]: [] }));
+                        setData((prev) => ({ ...prev, [activeTab]: [] }));
                       }
                     }}
                   >
@@ -931,14 +1055,19 @@ export default function SerialTabGeneral() {
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList>
                   {Object.keys(data).map((id) => (
-                    <TabsTrigger key={id} value={id}>{`Connection: ${id}`}</TabsTrigger>
+                    <TabsTrigger
+                      key={id}
+                      value={id}
+                    >{`Connection: ${id}`}</TabsTrigger>
                   ))}
                 </TabsList>
                 {Object.keys(data).map((id) => (
                   <TabsContent key={id} value={id}>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center text-sm text-muted-foreground">
-                        <span>Showing last {data[id].length} packets from {id}</span>
+                        <span>
+                          Showing last {data[id].length} packets from {id}
+                        </span>
                         <div className="flex gap-4">
                           <span className="text-blue-600 font-semibold">
                             Total: {data[id].length}
@@ -948,53 +1077,69 @@ export default function SerialTabGeneral() {
                           </span>
                         </div>
                       </div>
-                      
+
                       <div className="max-h-96 overflow-y-auto space-y-3">
-                        {data[id].slice(-20).reverse().map(({ packet, timestamp, id: packetId }, index) => (
-                          <div key={packetId || `packet-${index}`} className="p-4 border rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(timestamp).toLocaleTimeString()}
-                                </span>
-                                <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
-                                  Packet #{data[id].length - index}
-                                </span>
+                        {data[id]
+                          .slice(-20)
+                          .reverse()
+                          .map(({ packet, timestamp, id: packetId }, index) => (
+                            <div
+                              key={packetId || `packet-${index}`}
+                              className="p-4 border rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors"
+                            >
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(timestamp).toLocaleTimeString()}
+                                  </span>
+                                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+                                    Packet #{data[id].length - index}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {Object.keys(packet).length} fields
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                {Object.keys(packet).length} fields
-                              </div>
-                            </div>
-                            
-                            <div className="space-y-2">
-                              {Object.entries(packet).map(([key, value]) => (
-                                <div key={key} className="bg-background p-3 rounded border">
-                                  <div className="flex justify-between items-center mb-1">
-                                    <div className="text-sm font-semibold text-blue-600">
-                                      {key}
+
+                              <div className="space-y-2">
+                                {Object.entries(packet).map(([key, value]) => (
+                                  <div
+                                    key={key}
+                                    className="bg-background p-3 rounded border"
+                                  >
+                                    <div className="flex justify-between items-center mb-1">
+                                      <div className="text-sm font-semibold text-blue-600">
+                                        {key}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {typeof value} •{" "}
+                                        {Array.isArray(value)
+                                          ? value.length
+                                          : "N/A"}{" "}
+                                        items
+                                      </div>
                                     </div>
-                                    <div className="text-xs text-gray-500">
-                                      {typeof value} • {Array.isArray(value) ? value.length : 'N/A'} items
-                                    </div>
+                                    <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
+                                      {JSON.stringify(value, null, 2)}
+                                    </pre>
                                   </div>
-                                  <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
-                                    {JSON.stringify(value, null, 2)}
-                                  </pre>
-                                </div>
-                              ))}
-                              {Object.keys(packet).length === 0 && (
-                                <div className="text-xs text-gray-500 italic">
-                                  Empty packet
-                                </div>
-                              )}
+                                ))}
+                                {Object.keys(packet).length === 0 && (
+                                  <div className="text-xs text-gray-500 italic">
+                                    Empty packet
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                        
+                          ))}
+
                         {data[id].length === 0 && (
                           <div className="text-center py-8 text-muted-foreground">
                             <p className="text-lg">No packets received yet</p>
-                            <p className="text-sm">Packets will appear here in real-time as they are received</p>
+                            <p className="text-sm">
+                              Packets will appear here in real-time as they are
+                              received
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1075,7 +1220,6 @@ export default function SerialTabGeneral() {
         </div> */}
 
         {/* Packet Type Breakdown */}
-      
       </div>
 
       {connections.map((conn, index) => (
@@ -1090,24 +1234,32 @@ export default function SerialTabGeneral() {
                 <CardDescription>Connected to {conn.port_name}</CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                <Button 
-                  onClick={() => send(conn.id, conn.port_name, "Header")} 
+                <Button
+                  onClick={() => send(conn.id, conn.port_name, "Header")}
                   size="sm"
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   Send Header
                 </Button>
-                <Button 
-                  onClick={() => send(conn.id, conn.port_name, "Payload")} 
+                <Button
+                  onClick={() => send(conn.id, conn.port_name, "Payload")}
                   size="sm"
                   className="bg-purple-600 hover:bg-purple-700"
                 >
                   Send Payload
                 </Button>
-                <Button onClick={() => clearData(conn.id)} variant="outline" size="sm">
+                <Button
+                  onClick={() => clearData(conn.id)}
+                  variant="outline"
+                  size="sm"
+                >
                   Clear Data
                 </Button>
-                <Button onClick={() => disconnect(conn.id, conn.port_name, "Header")} variant="destructive" size="sm">
+                <Button
+                  onClick={() => disconnect(conn.id, conn.port_name, "Header")}
+                  variant="destructive"
+                  size="sm"
+                >
                   Disconnect
                 </Button>
               </div>
@@ -1117,33 +1269,41 @@ export default function SerialTabGeneral() {
             {/* Per-connection packet type counters */}
             {connectionPacketTypeCounts[conn.id] && (
               <div className="flex flex-wrap gap-2 mb-2">
-                {Object.entries(connectionPacketTypeCounts[conn.id]).map(([type, count]) => (
-                  <div key={type} className="flex flex-col items-center p-2 bg-blue-100 rounded min-w-[70px]">
-                    <span className="text-xs font-semibold text-blue-700 capitalize">{type}</span>
-                    <span className="text-lg font-mono text-green-700">{count}</span>
-                  </div>
-                ))}
+                {Object.entries(connectionPacketTypeCounts[conn.id]).map(
+                  ([type, count]) => (
+                    <div
+                      key={type}
+                      className="flex flex-col items-center p-2 bg-blue-100 rounded min-w-[70px]"
+                    >
+                      <span className="text-xs font-semibold text-blue-700 capitalize">
+                        {type}
+                      </span>
+                      <span className="text-lg font-mono text-green-700">
+                        {count}
+                      </span>
+                    </div>
+                  )
+                )}
               </div>
             )}
             <div className="flex gap-2 flex-wrap">
-              <Button onClick={() => loadSavedData(conn.id)} variant="outline" size="sm">
-                Load Saved
-              </Button>
-              <Button onClick={() => toggleSavedData(conn.id)} variant="outline" size="sm">
-                {showSavedData[conn.id] ? "Hide Saved" : "Show Saved"}
-              </Button>
-              <Button onClick={() => clearSavedDataForConnection(conn.id)} variant="destructive" size="sm">
-                Clear Saved
-              </Button>
-              <Button onClick={() => loadLogData(conn.id)} variant="outline" size="sm">
+              <Button
+                onClick={() => loadLogData(conn.id)}
+                variant="outline"
+                size="sm"
+              >
                 Load Log
               </Button>
-              <Button onClick={() => toggleLogData(conn.id)} variant="outline" size="sm">
+              <Button
+                onClick={() => toggleLogData(conn.id)}
+                variant="outline"
+                size="sm"
+              >
                 {showLogData[conn.id] ? "Hide Log" : "Show Log"}
               </Button>
             </div>
-                      <div className="space-y-4">
-              <div>
+            <div className="space-y-4">
+              {/* <div>
                 <Label className="mb-2 block font-medium">Live Logs</Label>
                 <div className="bg-muted p-3 border rounded-lg h-32 overflow-auto text-sm" id={`logs-${conn.id}`}>
                   {(logs[conn.id] || []).map((line, i) => (
@@ -1155,9 +1315,9 @@ export default function SerialTabGeneral() {
                     <div className="text-gray-500 italic">No logs available</div>
                   )}
                 </div>
-              </div>
-              
-              <div>
+              </div> */}
+
+              {/* <div>
                 <Label className="mb-2 block font-medium">Serial Data</Label>
                 <div className="h-64 overflow-auto rounded-lg border bg-muted text-sm font-mono p-3" id={`data-${conn.id}`}>
                   {(data[conn.id] || []).map((item, index) => (
@@ -1172,55 +1332,35 @@ export default function SerialTabGeneral() {
                     <div className="text-gray-500 italic">No data available</div>
                   )}
                 </div>
-              </div>
+              </div> */}
             </div>
 
-          {/* Saved Data Display */}
-          {showSavedData[conn.id] && (
-            <div className="space-y-4">
-              <div>
-                <Label className="mb-2 block font-medium flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  Saved Data ({savedData[conn.id]?.length || 0} packets)
-                </Label>
-                <div className="h-64 overflow-auto rounded-lg border bg-green-50 text-sm font-mono p-3">
-                  {(savedData[conn.id] || []).map((jsonPacket, index) => (
-                    <div key={index} className="p-3 border-b border-green-200 last:border-b-0 bg-green-100 rounded mb-2">
-                      <div className="text-xs text-green-700 mb-2 font-medium">Packet #{index + 1}</div>
-                      <div className="text-xs overflow-x-auto">
-                        <pre className="whitespace-pre-wrap text-green-800">{jsonPacket}</pre>
+            {/* Log Data Display */}
+            {showLogData[conn.id] && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="mb-2 block font-medium items-center gap-2">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>F
+                    Log Data
+                  </Label>
+                  <div className="h-64 overflow-auto rounded-lg border bg-purple-50 text-sm font-mono p-3">
+                    {(logData[conn.id] || []).map((logLine, index) => (
+                      <div
+                        key={index}
+                        className="p-2 border-b border-purple-200 last:border-b-0 bg-purple-100 rounded mb-1"
+                      >
+                        <div className="text-xs text-purple-700">{logLine}</div>
                       </div>
-                    </div>
-                  ))}
-                  {(!savedData[conn.id] || savedData[conn.id].length === 0) && (
-                    <div className="text-gray-500 italic text-center py-8">No saved data available</div>
-                  )}
+                    ))}
+                    {(!logData[conn.id] || logData[conn.id].length === 0) && (
+                      <div className="text-gray-500 italic text-center py-8">
+                        No log data available
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Log Data Display */}
-          {showLogData[conn.id] && (
-            <div className="space-y-4">
-              <div>
-                <Label className="mb-2 block font-medium flex items-center gap-2">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  Log Data
-                </Label>
-                <div className="h-64 overflow-auto rounded-lg border bg-purple-50 text-sm font-mono p-3">
-                  {(logData[conn.id] || []).map((logLine, index) => (
-                    <div key={index} className="p-2 border-b border-purple-200 last:border-b-0 bg-purple-100 rounded mb-1">
-                      <div className="text-xs text-purple-700">{logLine}</div>
-                    </div>
-                  ))}
-                  {(!logData[conn.id] || logData[conn.id].length === 0) && (
-                    <div className="text-gray-500 italic text-center py-8">No log data available</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+            )}
           </CardContent>
         </Card>
       ))}
@@ -1232,9 +1372,15 @@ export default function SerialTabGeneral() {
 function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
   if (!packet) return "No data";
   // Helper to render a field group
-  console.log("packet::",packet);
-  
-  const FieldGroup = ({ title, fields }: { title: string; fields: [string, any][] }) => {
+  console.log("packet::", packet);
+
+  const FieldGroup = ({
+    title,
+    fields,
+  }: {
+    title: string;
+    fields: [string, any][];
+  }) => {
     return (
       <div className="mb-2">
         <div className="font-bold text-blue-300 mb-1">{title}</div>
@@ -1242,14 +1388,22 @@ function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
           {fields.map(([k, v]) => (
             <React.Fragment key={k}>
               <div className="text-gray-400">{k}</div>
-              <div className="text-green-200">{typeof v === "object" && v !== null && !(v instanceof Uint8Array) ? JSON.stringify(v) : v instanceof Uint8Array ? `[bytes] ${v.length}` : String(v)}</div>
+              <div className="text-green-200">
+                {typeof v === "object" &&
+                v !== null &&
+                !(v instanceof Uint8Array)
+                  ? JSON.stringify(v)
+                  : v instanceof Uint8Array
+                  ? `[bytes] ${v.length}`
+                  : String(v)}
+              </div>
             </React.Fragment>
           ))}
         </div>
       </div>
     );
   };
-  
+
   const sections = [];
   if (packet.header) {
     sections.push(
@@ -1267,7 +1421,9 @@ function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
         title="Payload"
         fields={Object.entries({
           ...packet.payload,
-          data: packet.payload.data ? `[bytes] ${packet.payload.data.length}` : undefined,
+          data: packet.payload.data
+            ? `[bytes] ${packet.payload.data.length}`
+            : undefined,
         })}
       />
     );
@@ -1279,7 +1435,9 @@ function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
         title="Checksum"
         fields={Object.entries({
           ...packet.checksum,
-          value: packet.checksum.value ? `[bytes] ${packet.checksum.value.length}` : undefined,
+          value: packet.checksum.value
+            ? `[bytes] ${packet.checksum.value.length}`
+            : undefined,
         })}
       />
     );
@@ -1338,7 +1496,8 @@ function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
       />
     );
   }
-  if (sections.length === 0) return <div className="text-gray-400">No fields present</div>;
+  if (sections.length === 0)
+    return <div className="text-gray-400">No fields present</div>;
   console.log(sections);
   return <div>{sections}</div>;
 }

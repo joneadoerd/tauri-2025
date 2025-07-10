@@ -121,15 +121,12 @@ async fn main() {
             general::commands::start_share,
             general::commands::stop_share,
             // Add data persistence commands
-            general::commands::get_saved_data,
-            general::commands::clear_saved_data,
-            general::commands::get_all_saved_data,
-            general::commands::get_storage_stats,
-            general::commands::clear_all_saved_data,
+
             general::commands::read_log_file,
             general::commands::list_log_files,
             general::commands::get_logs_directory,
             general::commands::get_app_root_directory,
+            general::commands::disconnect_all_connections,
             simulation,
             get_simulation_data,
             clear_simulation_data,

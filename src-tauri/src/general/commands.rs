@@ -9,7 +9,6 @@ use tauri::{AppHandle, Emitter, State};
 use super::serial::SerialManager;
 use crate::packet::Packet;
 use uuid::Uuid;
-use std::collections::HashMap;
 use std::path::Path;
 use std::env;
 
@@ -86,45 +85,6 @@ pub async fn list_connections(
 }
 
 #[tauri::command]
-pub async fn get_saved_data(
-    state: State<'_, Arc<SerialManager>>,
-    connection_id: String,
-) -> Result<Vec<String>, String> {
-    Ok(state.get_saved_data(&connection_id).await)
-}
-
-#[tauri::command]
-pub async fn clear_saved_data(
-    state: State<'_, Arc<SerialManager>>,
-    connection_id: String,
-) -> Result<(), String> {
-    state.clear_saved_data(&connection_id).await;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_all_saved_data(
-    state: State<'_, Arc<SerialManager>>,
-) -> Result<HashMap<String, Vec<String>>, String> {
-    Ok(state.get_all_saved_data().await)
-}
-
-#[tauri::command]
-pub async fn get_storage_stats(
-    state: State<'_, Arc<SerialManager>>,
-) -> Result<HashMap<String, usize>, String> {
-    Ok(state.get_storage_stats().await)
-}
-
-#[tauri::command]
-pub async fn clear_all_saved_data(
-    state: State<'_, Arc<SerialManager>>,
-) -> Result<(), String> {
-    state.clear_all_saved_data().await;
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn read_log_file(connection_id: String) -> Result<Vec<String>, String> {
     // Get Tauri app root directory
     let app_root = get_app_root();
@@ -196,5 +156,11 @@ pub async fn start_share(
 #[tauri::command]
 pub async fn stop_share(state: State<'_, Arc<SerialManager>>) -> Result<(), String> {
     state.stop_share().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_all_connections(state: State<'_, Arc<SerialManager>>) -> Result<(), String> {
+    state.stop_all().await;
     Ok(())
 }
