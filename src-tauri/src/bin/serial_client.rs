@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Sent streaming header data ({} bytes) - Packet #{}", buf.len(), packet_count);
             }
 
-            sleep(Duration::from_millis(100)).await; // Send every 100ms
+            sleep(Duration::from_millis(1000)).await; // Send every 100ms
         }
     });
 
@@ -114,115 +114,124 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 packet_count += 1;
                                 println!("Processing packet #{}", packet_count);
                                 
-                                match packet.kind {
-                                    Some(packet::packet::Kind::Header(header)) => {
-                                        println!("Received HEADER: {:?}", header);
-                                        // Send immediate response
-                                        let writer_resp = writer.clone();
-                                        tokio::spawn(async move {
-                                            let response = PacketHeader {
-                                                id: header.id + 1000,
-                                                length: header.length,
-                                                checksum: header.checksum + 1,
-                                                version: header.version,
-                                                flags: header.flags,
-                                            };
+                                                                        match packet.kind {
+                                            Some(packet::packet::Kind::Header(header)) => {
+                                                println!("Received HEADER: {:?}", header);
+                                                // Send delayed response after 5 seconds
+                                                let writer_resp = writer.clone();
+                                                tokio::spawn(async move {
+                                                    // Wait 5 seconds before sending response
+                                                    sleep(Duration::from_secs(5)).await;
+                                                    
+                                                    let response = PacketHeader {
+                                                        id: header.id + 1000,
+                                                        length: header.length,
+                                                        checksum: header.checksum + 1,
+                                                        version: header.version,
+                                                        flags: header.flags,
+                                                    };
 
-                                            let resp_packet = Packet {
-                                                kind: Some(packet::packet::Kind::Header(response)),
-                                            };
+                                                    let resp_packet = Packet {
+                                                        kind: Some(packet::packet::Kind::Header(response)),
+                                                    };
 
-                                            let mut resp_buf = Vec::new();
-                                            if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                let mut writer_guard = writer_resp.lock().await;
-                                                
-                                                // Write protobuf data directly without length prefix
-                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                    eprintln!("Response write error: {}", e);
-                                                } else {
-                                                    // Flush to ensure immediate transmission
-                                                    if let Err(e) = writer_guard.flush().await {
-                                                        eprintln!("Response flush error: {}", e);
-                                                    } else {
-                                                        println!("Sent immediate header response ({} bytes)", resp_buf.len());
+                                                    let mut resp_buf = Vec::new();
+                                                    if let Ok(()) = resp_packet.encode(&mut resp_buf) {
+                                                        let mut writer_guard = writer_resp.lock().await;
+                                                        
+                                                        // Write protobuf data directly without length prefix
+                                                        if let Err(e) = writer_guard.write_all(&resp_buf).await {
+                                                            eprintln!("Response write error: {}", e);
+                                                        } else {
+                                                            // Flush to ensure immediate transmission
+                                                            if let Err(e) = writer_guard.flush().await {
+                                                                eprintln!("Response flush error: {}", e);
+                                                            } else {
+                                                                println!("Sent delayed header response after 5 seconds ({} bytes)", resp_buf.len());
+                                                            }
+                                                        }
                                                     }
-                                                }
+                                                });
                                             }
-                                        });
-                                    }
-                                    Some(packet::packet::Kind::Payload(payload)) => {
-                                        println!("Received PAYLOAD: {:?}", payload);
-                                        // Send immediate response
-                                        let writer_resp = writer.clone();
-                                        tokio::spawn(async move {
-                                            let response = PacketPayload {
-                                                type_value: payload.type_value + 1,
-                                                data: payload.data.clone(),
-                                                size: payload.size,
-                                                encoding: payload.encoding.clone(),
-                                            };
+                                            Some(packet::packet::Kind::Payload(payload)) => {
+                                                println!("Received PAYLOAD: {:?}", payload);
+                                                // Send delayed response after 5 seconds
+                                                let writer_resp = writer.clone();
+                                                tokio::spawn(async move {
+                                                    // Wait 5 seconds before sending response
+                                                    sleep(Duration::from_secs(5)).await;
+                                                    
+                                                    let response = PacketPayload {
+                                                        type_value: payload.type_value + 1,
+                                                        data: payload.data.clone(),
+                                                        size: payload.size,
+                                                        encoding: payload.encoding.clone(),
+                                                    };
 
-                                            let resp_packet = Packet {
-                                                kind: Some(packet::packet::Kind::Payload(response)),
-                                            };
+                                                    let resp_packet = Packet {
+                                                        kind: Some(packet::packet::Kind::Payload(response)),
+                                                    };
 
-                                            let mut resp_buf = Vec::new();
-                                            if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                let mut writer_guard = writer_resp.lock().await;
-                                                
-                                                // Write protobuf data directly without length prefix
-                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                    eprintln!("Response write error: {}", e);
-                                                } else {
-                                                    // Flush to ensure immediate transmission
-                                                    if let Err(e) = writer_guard.flush().await {
-                                                        eprintln!("Response flush error: {}", e);
-                                                    } else {
-                                                        println!("Sent immediate payload response ({} bytes)", resp_buf.len());
+                                                    let mut resp_buf = Vec::new();
+                                                    if let Ok(()) = resp_packet.encode(&mut resp_buf) {
+                                                        let mut writer_guard = writer_resp.lock().await;
+                                                        
+                                                        // Write protobuf data directly without length prefix
+                                                        if let Err(e) = writer_guard.write_all(&resp_buf).await {
+                                                            eprintln!("Response write error: {}", e);
+                                                        } else {
+                                                            // Flush to ensure immediate transmission
+                                                            if let Err(e) = writer_guard.flush().await {
+                                                                eprintln!("Response flush error: {}", e);
+                                                            } else {
+                                                                println!("Sent delayed payload response after 5 seconds ({} bytes)", resp_buf.len());
+                                                            }
+                                                        }
                                                     }
-                                                }
+                                                });
                                             }
-                                        });
-                                    }
-                                    Some(packet::packet::Kind::Checksum(checksum)) => {
-                                        println!("Received CHECKSUM: {:?}", checksum);
-                                        // Send immediate response
-                                        let writer_resp = writer.clone();
-                                        tokio::spawn(async move {
-                                            let response = PacketChecksum {
-                                                algorithm: checksum.algorithm,
-                                                value: checksum.value.clone(),
-                                                length: checksum.length,
-                                            };
+                                            Some(packet::packet::Kind::Checksum(checksum)) => {
+                                                println!("Received CHECKSUM: {:?}", checksum);
+                                                // Send delayed response after 5 seconds
+                                                let writer_resp = writer.clone();
+                                                tokio::spawn(async move {
+                                                    // Wait 5 seconds before sending response
+                                                    sleep(Duration::from_secs(5)).await;
+                                                    
+                                                    let response = PacketChecksum {
+                                                        algorithm: checksum.algorithm,
+                                                        value: checksum.value.clone(),
+                                                        length: checksum.length,
+                                                    };
 
-                                            let resp_packet = Packet {
-                                                kind: Some(packet::packet::Kind::Checksum(
-                                                    response,
-                                                )),
-                                            };
+                                                    let resp_packet = Packet {
+                                                        kind: Some(packet::packet::Kind::Checksum(
+                                                            response,
+                                                        )),
+                                                    };
 
-                                            let mut resp_buf = Vec::new();
-                                            if let Ok(()) = resp_packet.encode(&mut resp_buf) {
-                                                let mut writer_guard = writer_resp.lock().await;
-                                                
-                                                // Write protobuf data directly without length prefix
-                                                if let Err(e) = writer_guard.write_all(&resp_buf).await {
-                                                    eprintln!("Response write error: {}", e);
-                                                } else {
-                                                    // Flush to ensure immediate transmission
-                                                    if let Err(e) = writer_guard.flush().await {
-                                                        eprintln!("Response flush error: {}", e);
-                                                    } else {
-                                                        println!("Sent immediate checksum response ({} bytes)", resp_buf.len());
+                                                    let mut resp_buf = Vec::new();
+                                                    if let Ok(()) = resp_packet.encode(&mut resp_buf) {
+                                                        let mut writer_guard = writer_resp.lock().await;
+                                                        
+                                                        // Write protobuf data directly without length prefix
+                                                        if let Err(e) = writer_guard.write_all(&resp_buf).await {
+                                                            eprintln!("Response write error: {}", e);
+                                                        } else {
+                                                            // Flush to ensure immediate transmission
+                                                            if let Err(e) = writer_guard.flush().await {
+                                                                eprintln!("Response flush error: {}", e);
+                                                            } else {
+                                                                println!("Sent delayed checksum response after 5 seconds ({} bytes)", resp_buf.len());
+                                                            }
+                                                        }
                                                     }
-                                                }
+                                                });
                                             }
-                                        });
-                                    }
-                                    _ => {
-                                        println!("Received unknown packet type");
-                                    }
-                                }
+                                            _ => {
+                                                println!("Received unknown packet type");
+                                            }
+                                        }
                                 
                                 processed_bytes += packet_size;
                             } else {
@@ -244,9 +253,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         match packet.kind {
                                             Some(packet::packet::Kind::Header(header)) => {
                                                 println!("Received HEADER: {:?}", header);
-                                                // Send immediate response
+                                                // Send delayed response after 5 seconds
                                                 let writer_resp = writer.clone();
                                                 tokio::spawn(async move {
+                                                    // Wait 5 seconds before sending response
+                                                    sleep(Duration::from_secs(5)).await;
+                                                    
                                                     let response = PacketHeader {
                                                         id: header.id + 1000,
                                                         length: header.length,
@@ -269,7 +281,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             if let Err(e) = writer_guard.flush().await {
                                                                 eprintln!("Response flush error: {}", e);
                                                             } else {
-                                                                println!("Sent immediate header response ({} bytes)", resp_buf.len());
+                                                                println!("Sent delayed header response after 5 seconds ({} bytes)", resp_buf.len());
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            Some(packet::packet::Kind::Payload(payload)) => {
+                                                println!("Received PAYLOAD: {:?}", payload);
+                                                // Send delayed response after 5 seconds
+                                                let writer_resp = writer.clone();
+                                                tokio::spawn(async move {
+                                                    // Wait 5 seconds before sending response
+                                                    sleep(Duration::from_secs(5)).await;
+                                                    
+                                                    let response = PacketPayload {
+                                                        type_value: payload.type_value + 1,
+                                                        data: payload.data.clone(),
+                                                        size: payload.size,
+                                                        encoding: payload.encoding.clone(),
+                                                    };
+
+                                                    let resp_packet = Packet {
+                                                        kind: Some(packet::packet::Kind::Payload(response)),
+                                                    };
+
+                                                    let mut resp_buf = Vec::new();
+                                                    if let Ok(()) = resp_packet.encode(&mut resp_buf) {
+                                                        let mut writer_guard = writer_resp.lock().await;
+                                                        
+                                                        if let Err(e) = writer_guard.write_all(&resp_buf).await {
+                                                            eprintln!("Response write error: {}", e);
+                                                        } else {
+                                                            if let Err(e) = writer_guard.flush().await {
+                                                                eprintln!("Response flush error: {}", e);
+                                                            } else {
+                                                                println!("Sent delayed payload response after 5 seconds ({} bytes)", resp_buf.len());
                                                             }
                                                         }
                                                     }
