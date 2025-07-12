@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::transport::{ConnectionInfo, Transport};
 
+#[derive(Default , Clone)]
 pub struct Manager {
     pub connections: Arc<Mutex<HashMap<String, Arc<dyn Transport>>>>,
 }

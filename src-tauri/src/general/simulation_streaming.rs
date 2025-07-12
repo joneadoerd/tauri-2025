@@ -1,7 +1,11 @@
 use crate::general::sensor_udp_server::{start_udp_server, SensorData, SharedSensorMap};
-use crate::general::serial::SerialManager;
+
 use crate::general::simulation_commands::SimulationDataState;
-use crate::simulation::{Position, SimulationResultList};
+#[cfg(windows)]
+use crate::general::timer_res::win_timer;
+use crate::packet::{Packet, PacketHeader};
+use crate::simulation::SimulationResultList;
+use crate::transport::connection_manager::Manager;
 use crate::SENSOR_MAP;
 use base64;
 use once_cell::sync::Lazy;
@@ -25,7 +29,7 @@ pub struct ForwardingChannel {
 pub type ForwardingMap = Arc<Mutex<HashMap<u32, ForwardingChannel>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TargetPosition {
+pub struct TargetPacketHeader {
     pub target_id: u32,
     pub lat: f64,
     pub lon: f64,
@@ -55,7 +59,7 @@ pub struct SimulationStreamRequest {
 }
 
 pub trait TargetDataSource: Send + Sync {
-    fn get_next(&mut self, target_id: u32) -> Option<Position>;
+    fn get_next(&mut self, target_id: u32) -> Option<PacketHeader>;
 }
 
 pub struct SimulationDataSource {
@@ -78,15 +82,17 @@ impl SimulationDataSource {
 }
 
 impl TargetDataSource for SimulationDataSource {
-    fn get_next(&mut self, _target_id: u32) -> Option<Position> {
+    fn get_next(&mut self, _target_id: u32) -> Option<PacketHeader> {
         if let Some(ref result) = self.target_result {
             if self.current_step < result.final_state.len() {
                 let state = &result.final_state[self.current_step];
                 self.current_step += 1;
-                Some(Position {
-                    lat: state.lat,
-                    lon: state.lon,
-                    alt: state.alt,
+                Some(PacketHeader {
+                    id: state.alpha as u32,
+                    length: state.alt as u32,
+                    checksum: state.lon as u32,
+                    version: state.lat as u32,
+                    flags: state.psi as u32,
                 })
             } else {
                 None
@@ -112,23 +118,25 @@ impl SensorDataSource {
 }
 
 impl TargetDataSource for SensorDataSource {
-    fn get_next(&mut self, _target_id: u32) -> Option<Position> {
+    fn get_next(&mut self, _target_id: u32) -> Option<PacketHeader> {
         let map = self.sensor_map.blocking_lock();
-        map.get(&self.sensor_id).map(|data| Position {
-            lat: data.lat,
-            lon: data.lon,
-            alt: data.alt,
+        map.get(&self.sensor_id).map(|data| PacketHeader {
+            id: data.sensor_id,
+            length: data.alt as u32,
+            checksum: data.lon as u32,
+            version: data.lat as u32,
+            flags: data.temp as u32,
         })
     }
 }
 
 pub struct SimulationStreamer {
-    serial_manager: Arc<SerialManager>,
+    serial_manager: Arc<Manager>,
     active_streams: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl SimulationStreamer {
-    pub fn new(serial_manager: Arc<SerialManager>) -> Self {
+    pub fn new(serial_manager: Arc<Manager>) -> Self {
         // UDP server is started in main.rs, so no need to start it here.
         Self {
             serial_manager,
@@ -198,13 +206,13 @@ impl SimulationStreamer {
         Ok(())
     }
 
-    /// Stream a specific target's position data to a specific serial connection
+    /// Stream a specific target's PacketHeader data to a specific serial connection
     async fn stream_target_to_connection(
         app_handle: tauri::AppHandle,
         target_id: u32,
         connection_id: String,
         mut data_source: Box<dyn TargetDataSource>,
-        serial_manager: Arc<SerialManager>,
+        serial_manager: Arc<Manager>,
         interval_ms: u64,
     ) {
         info!(
@@ -212,50 +220,84 @@ impl SimulationStreamer {
             target_id, connection_id
         );
 
+        #[cfg(windows)]
+        if let Err(e) = win_timer::enable() {
+            error!("Timer resolution error: {}", e);
+            return;
+        }
+
         let interval = Duration::from_millis(interval_ms);
         let mut next_wake = time::Instant::now();
         let mut step = 0;
 
-        loop {
-            next_wake += interval;
-            if let Some(position) = data_source.get_next(target_id) {
-                let mut buf = Vec::new();
-                if let Ok(()) = position.encode(&mut buf) {
-                    if let Err(e) = serial_manager.send_raw(&connection_id, buf.clone()).await {
-                        error!("Failed to send position data to {}: {}", connection_id, e);
+        let result = async {
+            loop {
+                next_wake += interval;
+
+                if let Some(packet_header) = data_source.get_next(target_id) {
+                    let mut buf = Vec::new();
+                    let data = Packet {
+                        kind: Some(crate::packet::packet::Kind::Header(packet_header)),
+                    };
+                    if let Ok(()) = data.encode(&mut buf) {
+                        if let Err(e) = serial_manager.send_to(&connection_id, buf.clone()).await {
+                            error!(
+                                "Failed to send PacketHeader data to {}: {}",
+                                connection_id, e
+                            );
+                            break;
+                        }
+
+                        step += 1;
+                        let event_payload = serde_json::json!({
+                            "target_id": target_id,
+                            "connection_id": connection_id,
+                            "PacketHeader": {
+                                "id": packet_header.id,
+                                "length": packet_header.length,
+                                "checksum": packet_header.checksum,
+                                "version": packet_header.version,
+                                "flags": packet_header.flags
+                            },
+                            "step": step,
+                            "total_steps": 0,
+                            "raw_data": base64::encode(&buf),
+                        });
+                        let _ = app_handle.emit("simulation_stream_update", event_payload);
+                    } else {
+                        error!(
+                            "Failed to encode PacketHeader data for target {}",
+                            target_id
+                        );
                         break;
                     }
-                    step += 1;
-                    let event_payload = serde_json::json!({
-                        "target_id": target_id,
-                        "connection_id": connection_id,
-                        "position": {
-                            "lat": position.lat,
-                            "lon": position.lon,
-                            "alt": position.alt,
-                        },
-                        "step": step,
-                        "total_steps": 0,
-                        "raw_data": base64::encode(&buf),
-                    });
-                    let _ = app_handle.emit("simulation_stream_update", event_payload);
                 } else {
-                    error!("Failed to encode position data for target {}", target_id);
+                    info!(
+                        "No more data for target {} on connection {}",
+                        target_id, connection_id
+                    );
                     break;
                 }
-            } else {
-                info!(
-                    "No more data for target {} on connection {}",
-                    target_id, connection_id
-                );
-                break;
+
+                let now = time::Instant::now();
+                if now < next_wake {
+                    let sleep_time = next_wake - now - Duration::from_micros(1500);
+                    if !sleep_time.is_zero() {
+                        time::sleep(sleep_time).await;
+                    }
+
+                    #[cfg(windows)]
+                    while time::Instant::now() < next_wake {
+                        std::hint::spin_loop();
+                    }
+                }
             }
-            let now = time::Instant::now();
-            if now < next_wake {
-                let sleep_time = next_wake - now;
-                time::sleep(sleep_time).await;
-            }
-        }
+        };
+
+        result.await;
+
+        #[cfg(windows)]
+        win_timer::disable();
     }
 
     /// Stop all active simulation streams
@@ -264,9 +306,11 @@ impl SimulationStreamer {
 
         for (stream_key, handle) in streams_guard.drain() {
             info!("Stopping simulation stream: {}", stream_key);
+
             handle.abort();
         }
-
+        #[cfg(windows)]
+        win_timer::disable();
         info!("Stopped all simulation streams");
     }
 
@@ -277,8 +321,11 @@ impl SimulationStreamer {
 
         if let Some(handle) = streams_guard.remove(&stream_key) {
             info!("Stopping simulation stream: {}", stream_key);
+
             handle.abort();
         }
+        #[cfg(windows)]
+        win_timer::disable();
     }
 
     /// Get list of active streams
@@ -374,12 +421,12 @@ pub struct SensorStreamRequest {
 }
 
 pub struct SensorStreamer {
-    serial_manager: Arc<SerialManager>,
+    serial_manager: Arc<Manager>,
     active_streams: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl SensorStreamer {
-    pub fn new(serial_manager: Arc<SerialManager>) -> Self {
+    pub fn new(serial_manager: Arc<Manager>) -> Self {
         Self {
             serial_manager,
             active_streams: Arc::new(Mutex::new(HashMap::new())),
@@ -414,22 +461,25 @@ impl SensorStreamer {
                         map.get(&sensor_id).cloned()
                     };
                     if let Some(sensor) = data {
-                        let position = Position {
-                            lat: sensor.lat,
-                            lon: sensor.lon,
-                            alt: sensor.alt,
+                        let packet_header = PacketHeader {
+                            id: sensor_id,
+                            length: sensor.alt as u32,
+                            checksum: sensor.lon as u32,
+                            version: sensor.lat as u32,
+                            flags: sensor.temp as u32,
                         };
                         let mut buf = Vec::new();
-                        if let Ok(()) = position.encode(&mut buf) {
-                            let _ = serial_mgr
-                                .send_raw(&connection_id_handle, buf.clone())
-                                .await;
+                        let data = Packet {
+                            kind: Some(crate::packet::packet::Kind::Header(packet_header)),
+                        };
+                        if let Ok(()) = data.encode(&mut buf) {
+                            let _ = serial_mgr.send_to(&connection_id_handle, buf.clone()).await;
                             // Emit debug event for frontend log
 
                             let event_payload = serde_json::json!({
                                 "target_id": sensor_id,
                                 "connection_id": connection_id_handle,
-                                "position": {
+                                "PacketHeader": {
                                     "lat": sensor.lat,
                                     "lon": sensor.lon,
                                     "alt": sensor.alt,

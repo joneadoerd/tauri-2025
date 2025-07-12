@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod connection_manager;
 pub mod serial;
+pub mod streamer;
 use async_trait::async_trait;
 use serde::Serialize;
 

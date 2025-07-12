@@ -1,13 +1,13 @@
 // mod commands;
 mod commands_async;
 mod general;
-mod transport;
 mod logger;
 mod packet;
 mod serial;
-mod storage;
 pub mod simulation;
 mod simulation_state;
+mod storage;
+mod transport;
 mod zmq;
 mod zmq_server_tokio;
 use std::sync::Arc;
@@ -53,6 +53,7 @@ use crate::simulation_state::command::{
 };
 use crate::{
     general::sensor_udp_server::{SharedClientAddrMap, SharedSensorMap},
+    transport::connection_manager::Manager,
 };
 
 // Global sensor map for UDP server
@@ -64,10 +65,11 @@ async fn main() {
                             // console_subscriber::init(); // starts the Tokio console layer
 
     // Create serial manager and simulation streamer
-    let serial_manager = Arc::new(SerialManager::default());
-    let simulation_streamer = Arc::new(SimulationStreamer::new(serial_manager.clone()));
+    // Assume you have a `Manager` initialized already:
+    let serial_manager = Manager::new(); // Or however it's created
+    let simulation_streamer = Arc::new(SimulationStreamer::new(Arc::new(serial_manager.clone())));
     // Add sensor streamer
-    let sensor_streamer = Arc::new(UdpSensorStreamer::new(serial_manager.clone()));
+    let sensor_streamer = Arc::new(UdpSensorStreamer::new(Arc::new(serial_manager.clone())));
 
     // Initialize and start UDP server before Tauri runs
     let udp_socket = Arc::new(
@@ -112,7 +114,7 @@ async fn main() {
         .manage(SimulationDataState::default())
         .manage(client_addr_map)
         .manage(udp_socket)
-        .manage(transport::connection_manager::Manager::new())
+        // .manage(transport::connection_manager::Manager::new())
         .invoke_handler(tauri::generate_handler![
             init_zmq,
             add_sub,
@@ -122,14 +124,12 @@ async fn main() {
             list_ports,
             start_serial,
             disconnect,
-            
             transport::commands::start_connection,
             transport::commands::stop_connection,
             transport::commands::send_packet,
             transport::commands::list_serial_ports,
             transport::commands::list_connections,
             transport::commands::disconnect_all_connections,
-
             // general::commands::start_connection,
             // general::commands::stop_connection,
             // general::commands::send_packet,
@@ -140,13 +140,11 @@ async fn main() {
             // general::commands::start_share,
             // general::commands::stop_share,
 
-
             // Add data persistence commands
             storage::commands::read_log_file,
             storage::commands::list_log_files,
             storage::commands::get_logs_directory,
             storage::commands::get_app_root_directory,
-
             send_data,
             simulation,
             get_simulation_data,

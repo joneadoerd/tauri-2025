@@ -277,7 +277,7 @@ export default function SimulationStreamingDemo() {
             How It Works
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        {/* <CardContent className="space-y-4">
           <div className="prose prose-sm max-w-none">
             <h4>Simulation Streaming Process:</h4>
             <ol className="list-decimal list-inside space-y-2">
@@ -331,7 +331,7 @@ export default function SimulationStreamingDemo() {
               <li>Error handling and validation</li>
             </ul>
           </div>
-        </CardContent>
+        </CardContent> */}
       </Card>
 
       <Separator />
@@ -387,7 +387,7 @@ await startSimulationStreaming(request);`}
             <CardHeader>
               <CardTitle>Map View (Live Targets)</CardTitle>
             </CardHeader>
-            <CardContent>
+            {/* <CardContent>
               <div className="relative h-64 bg-gray-100 rounded flex items-center justify-center">
                 {dataSource === "Sensor" ? (
                   udpClients.filter(t => availableTargets.includes(t.sensor_id)).length === 0 ? (
@@ -424,7 +424,7 @@ await startSimulationStreaming(request);`}
                   )
                 )}
               </div>
-            </CardContent>
+            </CardContent> */}
           </Card>
         </div>
         {/* Sidebar - Target Info */}
@@ -433,7 +433,7 @@ await startSimulationStreaming(request);`}
             <CardHeader>
               <CardTitle>Target Info (Sidebar)</CardTitle>
             </CardHeader>
-            <CardContent>
+            {/* <CardContent>
               {dataSource === "Sensor" ? (
                 udpClients.filter(t => availableTargets.includes(t.sensor_id)).length === 0 ? (
                   <span className="text-muted-foreground">No active sensor targets</span>
@@ -469,7 +469,7 @@ await startSimulationStreaming(request);`}
                   </ul>
                 )
               )}
-            </CardContent>
+            </CardContent> */}
           </Card>
         </div>
       </div>
@@ -478,7 +478,7 @@ await startSimulationStreaming(request);`}
         <CardHeader>
           <CardTitle>Serial Data Debug Log</CardTitle>
         </CardHeader>
-        <CardContent>
+        {/* <CardContent>
           <div className="max-h-48 overflow-y-auto text-xs font-mono bg-gray-50 rounded p-2">
             {log.length === 0 ? (
               <span className="text-muted-foreground">No data sent yet</span>
@@ -492,7 +492,7 @@ await startSimulationStreaming(request);`}
               </ul>
             )}
           </div>
-        </CardContent>
+        </CardContent> */}
       </Card>
 
       {/* UDP Config Tab */}
