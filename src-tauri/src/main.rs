@@ -1,14 +1,15 @@
 // mod commands;
 mod commands_async;
 mod general;
+mod transport;
 mod logger;
 mod packet;
 mod serial;
+mod storage;
 pub mod simulation;
 mod simulation_state;
 mod zmq;
 mod zmq_server_tokio;
-
 use std::sync::Arc;
 
 use commands_async::{
@@ -16,9 +17,9 @@ use commands_async::{
     send_data, start_serial, AppState,
 };
 use general::{
-    commands::{
-        list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
-    },
+    // commands::{
+    //     list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
+    // },
     serial::SerialManager,
     simulation_commands::{
         clear_simulation_data, get_simulation_data, simulation, SimulationDataState,
@@ -44,10 +45,14 @@ use general::{
 
 use tokio::sync::OnceCell;
 
-use crate::general::sensor_udp_server::{SharedSensorMap, SharedClientAddrMap};
-use crate::general::simulation_streaming::{send_sensor_command, map_udp_sensor_target, unmap_udp_sensor_target, set_target_udp_addr};
+use crate::general::simulation_streaming::{
+    map_udp_sensor_target, send_sensor_command, set_target_udp_addr, unmap_udp_sensor_target,
+};
 use crate::simulation_state::command::{
     reset_simulation_timer, start_simulation_timer, stop_simulation_timer, SimTimerState,
+};
+use crate::{
+    general::sensor_udp_server::{SharedClientAddrMap, SharedSensorMap},
 };
 
 // Global sensor map for UDP server
@@ -65,7 +70,11 @@ async fn main() {
     let sensor_streamer = Arc::new(UdpSensorStreamer::new(serial_manager.clone()));
 
     // Initialize and start UDP server before Tauri runs
-    let udp_socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:5001").await.expect("could not bind UDP server"));
+    let udp_socket = Arc::new(
+        tokio::net::UdpSocket::bind("0.0.0.0:5001")
+            .await
+            .expect("could not bind UDP server"),
+    );
     let sensor_map = SharedSensorMap::default();
     let client_addr_map = SharedClientAddrMap::default();
 
@@ -84,7 +93,8 @@ async fn main() {
                     sensor_map_for_task,
                     client_addr_map_for_task,
                     app_handle,
-                ).await;
+                )
+                .await;
             });
             Ok(())
         })
@@ -102,6 +112,7 @@ async fn main() {
         .manage(SimulationDataState::default())
         .manage(client_addr_map)
         .manage(udp_socket)
+        .manage(transport::connection_manager::Manager::new())
         .invoke_handler(tauri::generate_handler![
             init_zmq,
             add_sub,
@@ -110,23 +121,33 @@ async fn main() {
             list_subs_with_status,
             list_ports,
             start_serial,
-            start_connection,
             disconnect,
-            stop_connection,
-            send_packet,
-            list_serial_ports,
-            list_connections,
-            send_data,
-            // Add the new share commands
-            general::commands::start_share,
-            general::commands::stop_share,
-            // Add data persistence commands
+            
+            transport::commands::start_connection,
+            transport::commands::stop_connection,
+            transport::commands::send_packet,
+            transport::commands::list_serial_ports,
+            transport::commands::list_connections,
+            transport::commands::disconnect_all_connections,
 
-            general::commands::read_log_file,
-            general::commands::list_log_files,
-            general::commands::get_logs_directory,
-            general::commands::get_app_root_directory,
-            general::commands::disconnect_all_connections,
+            // general::commands::start_connection,
+            // general::commands::stop_connection,
+            // general::commands::send_packet,
+            // general::commands::list_serial_ports,
+            // general::commands::list_connections,
+            // general::commands::disconnect_all_connections,
+            // Add the new share commands
+            // general::commands::start_share,
+            // general::commands::stop_share,
+
+
+            // Add data persistence commands
+            storage::commands::read_log_file,
+            storage::commands::list_log_files,
+            storage::commands::get_logs_directory,
+            storage::commands::get_app_root_directory,
+
+            send_data,
             simulation,
             get_simulation_data,
             clear_simulation_data,
@@ -150,7 +171,6 @@ async fn main() {
             map_udp_sensor_target,
             unmap_udp_sensor_target,
             set_target_udp_addr,
-
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
