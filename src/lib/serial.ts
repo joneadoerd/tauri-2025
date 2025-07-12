@@ -5,7 +5,7 @@ import { Packet } from "@/gen/packet";
 
 export interface SerialConnectionInfo {
   id: string;
-  port_name: string;
+  name: string;
 }
 
 export async function startConnection(

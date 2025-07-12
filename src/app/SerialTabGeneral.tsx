@@ -397,7 +397,7 @@ export default function SerialTabGeneral() {
   const loadLogsDirectory = async () => {
     try {
       const dir = await getLogsDirectory();
-      setLogsDirectory(dir);
+      setLogsDirectory(dir as any);
     } catch (error) {
       console.error("Failed to load logs directory:", error);
     }
@@ -1231,18 +1231,18 @@ export default function SerialTabGeneral() {
                   <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                   {conn.id}
                 </CardTitle>
-                <CardDescription>Connected to {conn.port_name}</CardDescription>
+                <CardDescription>Connected to {conn.name}</CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Button
-                  onClick={() => send(conn.id, conn.port_name, "Header")}
+                  onClick={() => send(conn.id, conn.name, "Header")}
                   size="sm"
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   Send Header
                 </Button>
                 <Button
-                  onClick={() => send(conn.id, conn.port_name, "Payload")}
+                  onClick={() => send(conn.id, conn.name, "Payload")}
                   size="sm"
                   className="bg-purple-600 hover:bg-purple-700"
                 >
@@ -1256,7 +1256,7 @@ export default function SerialTabGeneral() {
                   Clear Data
                 </Button>
                 <Button
-                  onClick={() => disconnect(conn.id, conn.port_name, "Header")}
+                  onClick={() => disconnect(conn.id, conn.name, "Header")}
                   variant="destructive"
                   size="sm"
                 >
