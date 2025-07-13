@@ -4,7 +4,9 @@ pub mod commands;
 pub mod connection_manager;
 pub mod serial;
 pub mod streamer;
+pub mod udp;
 use std::sync::Arc;
+use std::any::Any;
 
 use async_trait::async_trait;
 use prost::Message;
@@ -21,6 +23,8 @@ pub trait Transport: Send + Sync {
     async fn send(&self, data: Vec<u8>) -> Result<(), String>;
     async fn stop(&self);
     fn name(&self) -> String;
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// Share data from a channel to this transport in an independent Tokio task
     fn share_data_channel(self: Arc<Self>, rx: tokio::sync::mpsc::Receiver<Vec<u8>>, interval_ms: u64)
@@ -52,4 +56,8 @@ pub trait StatableTransport: Transport {
         id: String,
         on_packet: impl FnMut(String, F) + Send + 'static,
     ) -> Result<(), String>;
+    /// Generic function to update a field of the implementing struct
+    fn update_field<T>(&mut self, updater: impl FnOnce(&mut Self) -> T) -> T {
+        updater(self)
+    }
 }

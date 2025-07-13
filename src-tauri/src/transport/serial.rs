@@ -61,6 +61,12 @@ impl Transport for SerialTransport {
     fn name(&self) -> String {
         format!("Serial({}:{})", self.port_name, self.baud_rate)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 impl StatableTransport for SerialTransport {

@@ -46,7 +46,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Packet } from "@/gen/packet";
-import { Check, Activity } from "lucide-react";
+import { Check, Activity, RefreshCw } from "lucide-react";
 import { SerialPacketEvent } from "@/gen/packet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import React from "react"; // Added for React.Fragment
@@ -109,7 +109,11 @@ export default function SerialTabGeneral() {
   const [connectionPacketTypeCounts, setConnectionPacketTypeCounts] = useState<
     Record<string, Record<string, number>>
   >({});
-  const [activeShares, setActiveShares] = useState<Array<{ from: string; to: string }>>([]);
+  const [activeShares, setActiveShares] = useState<
+    Array<{ from: string; to: string }>
+  >([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
   useEffect(() => {
     const init = async () => {
@@ -491,69 +495,17 @@ export default function SerialTabGeneral() {
     }
   };
 
-  const sendExampleData = async (packetType: string) => {
-    if (connections.length === 0) {
-      alert("No connections available. Please connect first.");
-      return;
-    }
-
-    // Use the first available connection
-    const connection = connections[0];
-    const exampleDataForType = exampleData[packetType];
-
-    if (!exampleDataForType) {
-      alert(`No example data for ${packetType}`);
-      return;
-    }
-
-    let packet: Packet = {};
-    if (packetType === "Header") {
-      packet = { header: exampleDataForType };
-    } else if (packetType === "Payload") {
-      packet = { payload: exampleDataForType };
-    } else {
-      packet = { [packetType.toLowerCase()]: exampleDataForType };
-    }
-
-    try {
-      console.log(`Sending example ${packetType} packet:`, packet);
-      await sendPacket(connection.id, packet);
-      setLogs((prev: Record<string, string[]>) => ({
-        ...prev,
-        [connection.id]: [
-          ...(prev[connection.id] || []),
-          `Sent example ${packetType}: ${JSON.stringify(packet)}`,
-        ],
-      }));
-    } catch (error) {
-      console.error(`Error sending example ${packetType}:`, error);
-      setLogs((prev: Record<string, string[]>) => ({
-        ...prev,
-        [connection.id]: [
-          ...(prev[connection.id] || []),
-          `Error sending example ${packetType}: ${error}`,
-        ],
-      }));
-    }
-  };
-  const isValidJson = () => {
-    try {
-      JSON.parse(form.json);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   const handleStartShare = async () => {
     if (!shareFrom || !shareTo || shareFrom === shareTo) return;
     await startShare(shareFrom, shareTo, shareInterval);
     setActiveShares((prev) => [...prev, { from: shareFrom, to: shareTo }]);
-  }
+  };
 
   const handleStopShare = async (from: string, to: string) => {
     await stopShare(from, to);
-    setActiveShares((prev) => prev.filter(s => !(s.from === from && s.to === to)));
+    setActiveShares((prev) =>
+      prev.filter((s) => !(s.from === from && s.to === to))
+    );
   };
 
   const handleInitComs = async () => {
@@ -567,6 +519,22 @@ export default function SerialTabGeneral() {
     await invoke("disconnect_all_connections");
     clearAllStates();
   }
+
+  const refreshConnections = async () => {
+    setRefreshing(true);
+    const conns = await listConnections();
+    setConnections(conns);
+    setRefreshing(false);
+  };
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      refreshConnections();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
 
   // Example/template data for each packet type
   const exampleData: Record<string, any> = {
@@ -583,6 +551,74 @@ export default function SerialTabGeneral() {
       size: 5,
       encoding: "utf8",
     },
+  };
+  const [udpAddress, setUdpAddress] = useState("");
+  const [udpRemoteInputs, setUdpRemoteInputs] = useState<
+    Record<string, string>
+  >({});
+  const [udpStatus, setUdpStatus] = useState("");
+  // For UDP server init
+  const [initA, setInitA] = useState("127.0.0.1:9000");
+  const [initB, setInitB] = useState("127.0.0.1:9001");
+  // Filter UDP connections
+  const udpConnections = connections.filter(
+    (c) => c.name && c.name.startsWith("Udp(")
+  );
+
+  // Start UDP connection
+  const startUdp = async () => {
+    try {
+      await invoke("start_udp_connection", {
+        prefix: "udp",
+        localAddr: udpAddress,
+      });
+      setUdpStatus("UDP connection started");
+      setUdpAddress("");
+      refreshConnections();
+    } catch (e) {
+      setUdpStatus("Error: " + e);
+    }
+  };
+
+  // Init two UDP servers and connect them
+  const initTwoServers = async () => {
+    try {
+      // Start A
+      await invoke("start_udp_connection", { prefix: "udpA", localAddr: initA });
+      // Start B
+      await invoke("start_udp_connection", { prefix: "udpB", localAddr: initB });
+      // Refresh and get IDs
+      await refreshConnections();
+      const all = await invoke<{ id: string; name: string }[]>("list_connections");
+      const udpA = all.find((c) => c.name.includes(initA));
+      const udpB = all.find((c) => c.name.includes(initB));
+      if (udpA && udpB) {
+        await invoke("set_udp_remote_addr", { id: udpA.id, remoteAddr: initB });
+        await invoke("set_udp_remote_addr", { id: udpB.id, remoteAddr: initA });
+        setUdpStatus(`Started and connected ${initA} <-> ${initB}`);
+      } else {
+        setUdpStatus("Could not find both UDP servers after starting.");
+      }
+      refreshConnections();
+    } catch (e) {
+      setUdpStatus("Error initializing two servers: " + e);
+    }
+  };
+
+  // Set remote address for a UDP connection
+  const setUdpRemoteAddr = async (id: string) => {
+    const remoteAddr = udpRemoteInputs[id];
+    if (!remoteAddr) {
+      setUdpStatus("Enter a remote address.");
+      return;
+    }
+    try {
+      await invoke("set_udp_remote_addr", { id, remoteAddr });
+      setUdpStatus(`Set remote address for ${id}`);
+      refreshConnections();
+    } catch (e) {
+      setUdpStatus("Error setting remote address: " + e);
+    }
   };
 
   return (
@@ -604,7 +640,6 @@ export default function SerialTabGeneral() {
           </Button>
         </div>
       </div>
-
       {/* Global Packet Type Counters */}
       {Object.keys(globalPacketTypeCounts).length > 0 && (
         <div className="mt-4">
@@ -638,7 +673,6 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
-
       {/* Scroll to top button */}
       <div className="fixed bottom-4 right-4 z-50">
         <Button
@@ -650,51 +684,8 @@ export default function SerialTabGeneral() {
           ↑
         </Button>
       </div>
-
+      {/* Serial Config */}
       <div className="grid md:grid-cols-4 gap-4">
-        {/* <div className="md:col-span-3">
-          <Label>Packet Types</Label>
-          <div className="flex flex-col gap-1">
-            {["Header", "Payload"].map((type) => (
-              <div key={type} className="flex items-center gap-2">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={packetTypes.includes(type)}
-                    onChange={() => {
-                      setPacketTypes((prev) =>
-                        prev.includes(type)
-                          ? prev.filter((t) => t !== type)
-                          : [...prev, type]
-                      );
-                    }}
-                  />
-                  {type}
-                  {packetTypes.includes(type) && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="ml-2"
-                      onClick={() => setForm((f) => ({ ...f, json: JSON.stringify(exampleData[type], null, 2) }))}
-                    >
-                      Fill Example
-                    </Button>
-                  )}
-                </label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => sendExampleData(type)}
-                  disabled={connections.length === 0}
-                >
-                  Send {type}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div> */}
         <div>
           <Label>ID Prefix</Label>
           <Select
@@ -713,15 +704,6 @@ export default function SerialTabGeneral() {
             </SelectContent>
           </Select>
         </div>
-        {/* <Select value={packetType} onValueChange={setPacketType}>
-          <SelectTrigger>
-            <SelectValue placeholder="Packet type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="Header">Header</SelectItem>
-            <SelectItem value="Payload">Payload</SelectItem>
-          </SelectContent>
-        </Select> */}
         <div>
           <Label>Port</Label>
           <Select
@@ -775,16 +757,99 @@ export default function SerialTabGeneral() {
         >
           Get App Root
         </Button>
+        <Button
+          onClick={refreshConnections}
+          variant="outline"
+          className="w-full md:w-auto"
+          disabled={refreshing}
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
+          />
+          Refresh
+        </Button>
+        <Button
+          onClick={() => setAutoRefresh((v) => !v)}
+          variant={autoRefresh ? "default" : "outline"}
+          className="w-full md:w-auto"
+        >
+          {autoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
+        </Button>
       </div>
-
-      {/* <div>
-        <Label>JSON Packet</Label>
-        <Input
-          value={form.json}
-          onChange={(e) => setForm((f) => ({ ...f, json: e.target.value }))}
-        />
-      </div> */}
-
+      {/* UDP Config Section */}
+      <div className="border rounded p-4 bg-muted mt-6">
+        <h4 className="font-semibold mb-2">UDP Config</h4>
+        <div className="flex flex-col md:flex-row gap-4 items-end mb-2">
+          <div className="flex-1">
+            <Label className="mb-1 block">Local Address (host:port)</Label>
+            <Input
+              value={udpAddress}
+              onChange={(e) => setUdpAddress(e.target.value)}
+              placeholder="127.0.0.1:9000"
+            />
+          </div>
+          <Button
+            onClick={startUdp}
+            disabled={!udpAddress}
+            className="w-full md:w-auto"
+          >
+            Start UDP Connection
+          </Button>
+          {/* UDP Init 2 Servers UI */}
+          <div className="flex-1">
+            <Label className="mb-1 block">Init 2 Servers</Label>
+            <Input
+              value={initA}
+              onChange={e => setInitA(e.target.value)}
+              placeholder="127.0.0.1:9000"
+              className="mb-2"
+            />
+            <Input
+              value={initB}
+              onChange={e => setInitB(e.target.value)}
+              placeholder="127.0.0.1:9001"
+            />
+          </div>
+          <Button onClick={initTwoServers} className="w-full md:w-auto">
+            Init 2 Servers & Connect
+          </Button>
+        </div>
+        <div>
+          <h5 className="font-semibold mb-1">Active UDP Connections</h5>
+          {udpConnections.length === 0 ? (
+            <div className="text-muted-foreground">No UDP connections.</div>
+          ) : (
+            <ul className="space-y-2">
+              {udpConnections.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex flex-col gap-2 border rounded p-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{c.name}</Badge>
+                    <span className="font-mono text-xs">{c.id}</span>
+                    <Input
+                      className="w-48"
+                      value={udpRemoteInputs[c.id] || ""}
+                      onChange={(e) =>
+                        setUdpRemoteInputs((prev) => ({
+                          ...prev,
+                          [c.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="Remote address (host:port)"
+                    />
+                    <Button size="sm" onClick={() => setUdpRemoteAddr(c.id)}>
+                      Set Remote
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="text-sm text-muted-foreground mt-2">{udpStatus}</div>
+      </div>
       <Separator />
       <div className="flex items-center gap-4">
         {logFiles.length > 0 ? (
@@ -871,13 +936,18 @@ export default function SerialTabGeneral() {
             type="number"
             min={1}
             value={shareInterval}
-            onChange={e => setShareInterval(Number(e.target.value))}
+            onChange={(e) => setShareInterval(Number(e.target.value))}
             className="w-24"
           />
         </div>
         <Button
           onClick={handleStartShare}
-          disabled={!shareFrom || !shareTo || shareFrom === shareTo || activeShares.some(s => s.from === shareFrom && s.to === shareTo)}
+          disabled={
+            !shareFrom ||
+            !shareTo ||
+            shareFrom === shareTo ||
+            activeShares.some((s) => s.from === shareFrom && s.to === shareTo)
+          }
           variant="default"
         >
           Start Share ({shareInterval}ms)
@@ -892,9 +962,18 @@ export default function SerialTabGeneral() {
             <CardContent>
               <ul className="space-y-2">
                 {activeShares.map(({ from, to }) => (
-                  <li key={from + "->" + to} className="flex items-center gap-2">
-                    <span className="font-mono">{from} → {to}</span>
-                    <Button variant="destructive" size="sm" onClick={() => handleStopShare(from, to)}>
+                  <li
+                    key={from + "->" + to}
+                    className="flex items-center gap-2"
+                  >
+                    <span className="font-mono">
+                      {from} → {to}
+                    </span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleStopShare(from, to)}
+                    >
                       Stop
                     </Button>
                   </li>
@@ -904,7 +983,6 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
-
       {/* Packet Counters */}
       {Object.keys(packetCounts).length > 0 && (
         <div className="mt-6">
@@ -968,7 +1046,6 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
-
       {/* Storage Statistics */}
       {Object.keys(storageStats).length > 0 && (
         <div className="mt-4">
@@ -1001,7 +1078,6 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
-
       {/* Debug Information */}
       {(logsDirectory || appRootDirectory) && (
         <div className="mt-4">
@@ -1051,7 +1127,119 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
+      {/*List Connection */}
+      
+      {connections.map((conn, index) => (
+        <Card key={index} className="space-y-4">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  {conn.id}
+                </CardTitle>
+                <CardDescription>Connected to {conn.name}</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => send(conn.id, conn.name, "Header")}
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Send Header
+                </Button>
+                <Button
+                  onClick={() => send(conn.id, conn.name, "Payload")}
+                  size="sm"
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  Send Payload
+                </Button>
+                <Button
+                  onClick={() => clearData(conn.id)}
+                  variant="outline"
+                  size="sm"
+                >
+                  Clear Data
+                </Button>
+                <Button
+                  onClick={() => disconnect(conn.id, conn.name, "Header")}
+                  variant="destructive"
+                  size="sm"
+                >
+                  Disconnect
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Per-connection packet type counters */}
+            {connectionPacketTypeCounts[conn.id] && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {Object.entries(connectionPacketTypeCounts[conn.id]).map(
+                  ([type, count]) => (
+                    <div
+                      key={type}
+                      className="flex flex-col items-center p-2 bg-blue-100 rounded min-w-[70px]"
+                    >
+                      <span className="text-xs font-semibold text-blue-700 capitalize">
+                        {type}
+                      </span>
+                      <span className="text-lg font-mono text-green-700">
+                        {count}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={() => loadLogData(conn.id)}
+                variant="outline"
+                size="sm"
+              >
+                Load Log
+              </Button>
+              <Button
+                onClick={() => toggleLogData(conn.id)}
+                variant="outline"
+                size="sm"
+              >
+                {showLogData[conn.id] ? "Hide Log" : "Show Log"}
+              </Button>
+            </div>
 
+            {/* Log Data Display */}
+            {showLogData[conn.id] && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="mb-2 block font-medium items-center gap-2">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>F
+                    Log Data
+                  </Label>
+                  <div className="h-64 overflow-auto rounded-lg border bg-purple-50 text-sm font-mono p-3">
+                    {(logData[conn.id] || []).map((logLine, index) => (
+                      <div
+                        key={index}
+                        className="p-2 border-b border-purple-200 last:border-b-0 bg-purple-100 rounded mb-1"
+                      >
+                        <div className="text-xs text-purple-700">{logLine}</div>
+                      </div>
+                    ))}
+                    {(!logData[conn.id] || logData[conn.id].length === 0) && (
+                      <div className="text-gray-500 italic text-center py-8">
+                        No log data available
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+      
       {/* Received Data Display */}
       <div className="mt-8">
         <h3 className="text-lg font-bold mb-4">Real-time Packet Data</h3>
@@ -1184,353 +1372,9 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
 
-        {/* Data Statistics */}
-        {/* <div className="mb-6">
-          <Card className="p-4">
-            <CardHeader>
-              <CardTitle className="text-sm font-mono">Packet Statistics</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(data).map(([id, packets]) => {
-                  const packetCount = packetCounts[id]?.count || 0;
-                  const latestPacket = packets.length > 0 ? packets[packets.length - 1] : null;
-                  const packetTypes = packets.reduce((acc, { packet }) => {
-                    Object.keys(packet).forEach(key => {
-                      acc[key] = (acc[key] || 0) + 1;
-                    });
-                    return acc;
-                  }, {} as Record<string, number>);
-                  
-                  return (
-                    <div key={id} className="p-4 border rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <div className="text-lg font-bold text-blue-600">{id}</div>
-                          <div className="text-xs text-gray-600">Connection ID</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-2xl font-bold text-green-600">{packetCount}</div>
-                          <div className="text-xs text-gray-500">packets/sec</div>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span>Total Packets:</span>
-                          <span className="font-semibold text-blue-600">{packets.length}</span>
-                        </div>
-                        
-                        {latestPacket && (
-                          <div className="flex justify-between text-sm">
-                            <span>Latest:</span>
-                            <span className="text-green-600">
-                              {new Date(latestPacket.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        )}
-                        
-                        {Object.keys(packetTypes).length > 0 && (
-                          <div className="mt-3">
-                            <div className="text-xs font-semibold text-gray-600 mb-1">Packet Types:</div>
-                            <div className="space-y-1">
-                              {Object.entries(packetTypes).map(([type, count]) => (
-                                <div key={type} className="flex justify-between text-xs">
-                                  <span className="text-blue-600">{type}:</span>
-                                  <span className="font-semibold">{count}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </div> */}
-
         {/* Packet Type Breakdown */}
       </div>
 
-      {connections.map((conn, index) => (
-        <Card key={index} className="space-y-4">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                  {conn.id}
-                </CardTitle>
-                <CardDescription>Connected to {conn.name}</CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => send(conn.id, conn.name, "Header")}
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  Send Header
-                </Button>
-                <Button
-                  onClick={() => send(conn.id, conn.name, "Payload")}
-                  size="sm"
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
-                  Send Payload
-                </Button>
-                <Button
-                  onClick={() => clearData(conn.id)}
-                  variant="outline"
-                  size="sm"
-                >
-                  Clear Data
-                </Button>
-                <Button
-                  onClick={() => disconnect(conn.id, conn.name, "Header")}
-                  variant="destructive"
-                  size="sm"
-                >
-                  Disconnect
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Per-connection packet type counters */}
-            {connectionPacketTypeCounts[conn.id] && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                {Object.entries(connectionPacketTypeCounts[conn.id]).map(
-                  ([type, count]) => (
-                    <div
-                      key={type}
-                      className="flex flex-col items-center p-2 bg-blue-100 rounded min-w-[70px]"
-                    >
-                      <span className="text-xs font-semibold text-blue-700 capitalize">
-                        {type}
-                      </span>
-                      <span className="text-lg font-mono text-green-700">
-                        {count}
-                      </span>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-            <div className="flex gap-2 flex-wrap">
-              <Button
-                onClick={() => loadLogData(conn.id)}
-                variant="outline"
-                size="sm"
-              >
-                Load Log
-              </Button>
-              <Button
-                onClick={() => toggleLogData(conn.id)}
-                variant="outline"
-                size="sm"
-              >
-                {showLogData[conn.id] ? "Hide Log" : "Show Log"}
-              </Button>
-            </div>
-            <div className="space-y-4">
-              {/* <div>
-                <Label className="mb-2 block font-medium">Live Logs</Label>
-                <div className="bg-muted p-3 border rounded-lg h-32 overflow-auto text-sm" id={`logs-${conn.id}`}>
-                  {(logs[conn.id] || []).map((line, i) => (
-                    <div key={i} className="py-1 border-b border-gray-200 last:border-b-0">
-                      {line}
-                    </div>
-                  ))}
-                  {(!logs[conn.id] || logs[conn.id].length === 0) && (
-                    <div className="text-gray-500 italic">No logs available</div>
-                  )}
-                </div>
-              </div> */}
-
-              {/* <div>
-                <Label className="mb-2 block font-medium">Serial Data</Label>
-                <div className="h-64 overflow-auto rounded-lg border bg-muted text-sm font-mono p-3" id={`data-${conn.id}`}>
-                  {(data[conn.id] || []).map((item, index) => (
-                    <div key={index} className="p-2 border-b border-gray-200 last:border-b-0 bg-white rounded mb-2">
-                      <div className="text-xs text-gray-500 mb-1">Packet #{index + 1}</div>
-                      <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
-                        {JSON.stringify(item, null, 2)}
-                      </pre>
-                    </div>
-                  ))}
-                  {(!data[conn.id] || data[conn.id].length === 0) && (
-                    <div className="text-gray-500 italic">No data available</div>
-                  )}
-                </div>
-              </div> */}
-            </div>
-
-            {/* Log Data Display */}
-            {showLogData[conn.id] && (
-              <div className="space-y-4">
-                <div>
-                  <Label className="mb-2 block font-medium items-center gap-2">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>F
-                    Log Data
-                  </Label>
-                  <div className="h-64 overflow-auto rounded-lg border bg-purple-50 text-sm font-mono p-3">
-                    {(logData[conn.id] || []).map((logLine, index) => (
-                      <div
-                        key={index}
-                        className="p-2 border-b border-purple-200 last:border-b-0 bg-purple-100 rounded mb-1"
-                      >
-                        <div className="text-xs text-purple-700">{logLine}</div>
-                      </div>
-                    ))}
-                    {(!logData[conn.id] || logData[conn.id].length === 0) && (
-                      <div className="text-gray-500 italic text-center py-8">
-                        No log data available
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
     </div>
   );
-}
-
-// Implement renderPacketProtobuf to pretty-print the protobuf structure
-function renderPacketProtobuf(packet: import("@/gen/packet").Packet) {
-  if (!packet) return "No data";
-  // Helper to render a field group
-  console.log("packet::", packet);
-
-  const FieldGroup = ({
-    title,
-    fields,
-  }: {
-    title: string;
-    fields: [string, any][];
-  }) => {
-    return (
-      <div className="mb-2">
-        <div className="font-bold text-blue-300 mb-1">{title}</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          {fields.map(([k, v]) => (
-            <React.Fragment key={k}>
-              <div className="text-gray-400">{k}</div>
-              <div className="text-green-200">
-                {typeof v === "object" &&
-                v !== null &&
-                !(v instanceof Uint8Array)
-                  ? JSON.stringify(v)
-                  : v instanceof Uint8Array
-                  ? `[bytes] ${v.length}`
-                  : String(v)}
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const sections = [];
-  if (packet.header) {
-    sections.push(
-      <FieldGroup
-        key="header"
-        title="Header"
-        fields={Object.entries(packet.header)}
-      />
-    );
-  }
-  if (packet.payload) {
-    sections.push(
-      <FieldGroup
-        key="payload"
-        title="Payload"
-        fields={Object.entries({
-          ...packet.payload,
-          data: packet.payload.data
-            ? `[bytes] ${packet.payload.data.length}`
-            : undefined,
-        })}
-      />
-    );
-  }
-  if (packet.checksum) {
-    sections.push(
-      <FieldGroup
-        key="checksum"
-        title="Checksum"
-        fields={Object.entries({
-          ...packet.checksum,
-          value: packet.checksum.value
-            ? `[bytes] ${packet.checksum.value.length}`
-            : undefined,
-        })}
-      />
-    );
-  }
-  if (packet.timestamp) {
-    sections.push(
-      <FieldGroup
-        key="timestamp"
-        title="Timestamp"
-        fields={Object.entries(packet.timestamp)}
-      />
-    );
-  }
-  if (packet.source) {
-    sections.push(
-      <FieldGroup
-        key="source"
-        title="Source"
-        fields={Object.entries(packet.source)}
-      />
-    );
-  }
-  if (packet.destination) {
-    sections.push(
-      <FieldGroup
-        key="destination"
-        title="Destination"
-        fields={Object.entries(packet.destination)}
-      />
-    );
-  }
-  if (packet.protocol) {
-    sections.push(
-      <FieldGroup
-        key="protocol"
-        title="Protocol"
-        fields={Object.entries(packet.protocol)}
-      />
-    );
-  }
-  if (packet.flags) {
-    sections.push(
-      <FieldGroup
-        key="flags"
-        title="Flags"
-        fields={Object.entries(packet.flags)}
-      />
-    );
-  }
-  if (packet.version) {
-    sections.push(
-      <FieldGroup
-        key="version"
-        title="Version"
-        fields={Object.entries(packet.version)}
-      />
-    );
-  }
-  if (sections.length === 0)
-    return <div className="text-gray-400">No fields present</div>;
-  console.log(sections);
-  return <div>{sections}</div>;
 }

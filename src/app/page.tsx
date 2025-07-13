@@ -6,10 +6,11 @@ import SerialTabGeneral from "./SerialTabGeneral";
 import SimulationRunner from "./SimulationRunner";
 import SimulationMapView from "./simulation-map";
 import SimulationStreamingDemo from "./SimulationStreamingDemo";
+import UDPTapGeneral from "./UDPTapGeneral";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "zmq" | "serial" | "serial-general" | "SimulationStreamingDemo" | "simulation-map"
+    "zmq" | "serial" | "serial-general" | "SimulationStreamingDemo" | "simulation-map" | "udp-general"
   >("serial");
 
   return (
@@ -63,6 +64,14 @@ export default function App() {
         >
           Simulation Map
         </button>
+        <button
+          className={`px-4 py-2 rounded ${
+            activeTab === "udp-general" ? "bg-blue-500 text-white" : "bg-white border"
+          }`}
+          onClick={() => setActiveTab("udp-general")}
+        >
+          UDP General
+        </button>
       </div>
       <div>
         <div hidden={activeTab !== "zmq"}>
@@ -79,6 +88,9 @@ export default function App() {
         </div>
         <div hidden={activeTab !== "simulation-map"}>
           <SimulationMapView />
+        </div>
+        <div hidden={activeTab !== "udp-general"}>
+          <UDPTapGeneral />
         </div>
       </div>
     </div>

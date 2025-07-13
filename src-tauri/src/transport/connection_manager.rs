@@ -1,22 +1,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::transport::{ConnectionInfo, Transport};
 
 #[derive(Default, Clone)]
 pub struct Manager {
-    pub connections: Arc<Mutex<HashMap<String, Arc<dyn Transport>>>>,
-    pub active_shares: Arc<Mutex<HashMap<(String, String), tokio::sync::mpsc::Sender<Vec<u8>>>>>,
-    pub share_tasks: Arc<Mutex<HashMap<(String, String), tokio::task::JoinHandle<()>>>>,
+    pub connections: Arc<tokio::sync::Mutex<HashMap<String, Arc<dyn Transport + Send + Sync>>>>,
+    pub active_shares: Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::sync::mpsc::Sender<Vec<u8>>>>>,
+    pub share_tasks: Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::task::JoinHandle<()>>>>,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Self {
-            connections: Arc::new(Mutex::new(HashMap::new())),
-            active_shares: Arc::new(Mutex::new(HashMap::new())),
-            share_tasks: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            active_shares: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            share_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
     /// Share data from one connection to another by id, with interval
@@ -72,7 +71,7 @@ impl Manager {
     pub async fn add_connection(
         &self,
         id: String,
-        transport: Arc<dyn Transport>,
+        transport: Arc<dyn Transport + Send + Sync>,
     ) -> Result<(), String> {
         let mut connections = self.connections.lock().await;
         if connections.contains_key(&id) {
@@ -118,5 +117,22 @@ impl Manager {
                 name: transport.name(),
             })
             .collect()
+    }
+
+    pub async fn set_udp_remote_addr(&self, id: &str, remote_addr: std::net::SocketAddr) -> Result<(), String> {
+        let mut connections = self.connections.lock().await;
+        if let Some(conn) = connections.get_mut(id) {
+            // Try to get a mutable reference to the underlying UdpTransport
+            if let Some(udp) = Arc::get_mut(conn)
+                .and_then(|t| t.as_any_mut().downcast_mut::<crate::transport::udp::UdpTransport>())
+            {
+                udp.remote_addr = Some(remote_addr);
+                Ok(())
+            } else {
+                Err("Connection is not a UdpTransport or is shared".to_string())
+            }
+        } else {
+            Err(format!("No connection found for id {}", id))
+        }
     }
 }
