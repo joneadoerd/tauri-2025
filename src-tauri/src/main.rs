@@ -112,6 +112,7 @@ async fn main() {
         .manage(sensor_streamer)
         .manage(AppState::default())
         .manage(SimulationDataState::default())
+        // .manage(transport::commands::SimulationDataStateManager::default())
         .manage(client_addr_map)
         .manage(udp_socket)
         // .manage(transport::connection_manager::Manager::new())
@@ -133,7 +134,16 @@ async fn main() {
             transport::commands::disconnect_all_connections,
             transport::commands::start_serial_share,
             transport::commands::stop_share,
+            transport::commands::stop_share_by_connection_id,
             transport::commands::set_udp_remote_addr,
+            transport::commands::start_simulation_udp_streaming,
+            transport::commands::stop_simulation_udp_streaming,
+            transport::commands::share_target_to_udp_server,
+            transport::commands::share_target_to_connection,
+            transport::commands::stop_share_to_connection,
+            transport::commands::list_active_shares,
+            transport::commands::list_udp_targets,
+            transport::commands::share_udp_target_to_connection,
             // general::commands::start_connection,
             // general::commands::stop_connection,
             // general::commands::send_packet,

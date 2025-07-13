@@ -725,7 +725,7 @@ pub async fn get_available_simulation_connections(
 pub async fn get_available_simulation_targets(
     simulation_data: tauri::State<'_, SimulationDataState>,
 ) -> Result<Vec<u32>, String> {
-    let data_guard = simulation_data.lock().unwrap();
+    let data_guard = simulation_data.lock().await;
     if let Some(data) = data_guard.as_ref() {
         Ok(SimulationStreamer::get_available_targets(data))
     } else {
@@ -737,8 +737,8 @@ pub async fn get_available_simulation_targets(
 pub async fn check_simulation_data_available(
     simulation_data: tauri::State<'_, SimulationDataState>,
 ) -> Result<bool, String> {
-    let data_guard = simulation_data.lock().unwrap();
-    Ok(data_guard.is_some() && data_guard.as_ref().unwrap().results.len() > 0)
+    let data_guard = simulation_data.lock().await;
+    Ok(data_guard.is_some() && data_guard.as_ref().map_or(false, |d| d.results.len() > 0))
 }
 
 #[tauri::command]

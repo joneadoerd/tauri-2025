@@ -4,8 +4,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, oneshot};
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex as TokioMutex;
+use std::collections::HashMap;
+use crate::packet::{Packet, packet::Kind, TargetPacket, TargetPacketList};
 
 use crate::transport::{serial::LAST_DATA, StatableTransport, Transport};
+
+// Store latest TargetPacket for each target_id, per UDP connection
+pub static UDP_TARGET_DATA: Lazy<TokioMutex<HashMap<String, HashMap<u32, TargetPacket>>>> = Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[derive(Clone)]
 pub struct UdpTransport {
@@ -97,7 +104,24 @@ impl StatableTransport for UdpTransport {
                                 let mut last_data = LAST_DATA.lock().await;
                                 last_data.insert(id_clone.clone(), buf[..n].to_vec());
                                 drop(last_data);
-                                // Try to decode as protobuf message
+                                // Try to decode as Packet (for TargetPacket/TargetPacketList)
+                                if let Ok(packet) = Packet::decode(&buf[..n]) {
+                                    // If it's a TargetPacket or TargetPacketList, update UDP_TARGET_DATA
+                                    let mut udp_map = UDP_TARGET_DATA.lock().await;
+                                    let entry = udp_map.entry(id_clone.clone()).or_default();
+                                    match &packet.kind {
+                                        Some(Kind::TargetPacket(tp)) => {
+                                            entry.insert(tp.target_id, tp.clone());
+                                        },
+                                        Some(Kind::TargetPacketList(tpl)) => {
+                                            for tp in &tpl.packets {
+                                                entry.insert(tp.target_id, tp.clone());
+                                            }
+                                        },
+                                        _ => {}
+                                    }
+                                }
+                                // Also call the original on_packet for generic F
                                 if let Ok(packet) = F::decode(&buf[..n]) {
                                     on_packet(id_clone.clone(), packet);
                                 }

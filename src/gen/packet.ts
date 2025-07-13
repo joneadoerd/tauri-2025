@@ -16,6 +16,8 @@ export interface Packet {
   protocol?: PacketProtocol | undefined;
   flags?: PacketFlags | undefined;
   version?: PacketVersion | undefined;
+  target_packet?: TargetPacket | undefined;
+  target_packet_list?: TargetPacketList | undefined;
 }
 
 export interface PacketHeader {
@@ -133,6 +135,18 @@ export interface SerialPacketEvent {
   packet: Packet | undefined;
 }
 
+export interface TargetPacket {
+  target_id: number;
+  lat: number;
+  lon: number;
+  alt: number;
+  time: number;
+}
+
+export interface TargetPacketList {
+  packets: TargetPacket[];
+}
+
 function createBasePacket(): Packet {
   return {
     header: undefined,
@@ -144,6 +158,8 @@ function createBasePacket(): Packet {
     protocol: undefined,
     flags: undefined,
     version: undefined,
+    target_packet: undefined,
+    target_packet_list: undefined,
   };
 }
 
@@ -175,6 +191,12 @@ export const Packet: MessageFns<Packet> = {
     }
     if (message.version !== undefined) {
       PacketVersion.encode(message.version, writer.uint32(74).fork()).join();
+    }
+    if (message.target_packet !== undefined) {
+      TargetPacket.encode(message.target_packet, writer.uint32(82).fork()).join();
+    }
+    if (message.target_packet_list !== undefined) {
+      TargetPacketList.encode(message.target_packet_list, writer.uint32(90).fork()).join();
     }
     return writer;
   },
@@ -258,6 +280,22 @@ export const Packet: MessageFns<Packet> = {
           message.version = PacketVersion.decode(reader, reader.uint32());
           continue;
         }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.target_packet = TargetPacket.decode(reader, reader.uint32());
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.target_packet_list = TargetPacketList.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -278,6 +316,10 @@ export const Packet: MessageFns<Packet> = {
       protocol: isSet(object.protocol) ? PacketProtocol.fromJSON(object.protocol) : undefined,
       flags: isSet(object.flags) ? PacketFlags.fromJSON(object.flags) : undefined,
       version: isSet(object.version) ? PacketVersion.fromJSON(object.version) : undefined,
+      target_packet: isSet(object.target_packet) ? TargetPacket.fromJSON(object.target_packet) : undefined,
+      target_packet_list: isSet(object.target_packet_list)
+        ? TargetPacketList.fromJSON(object.target_packet_list)
+        : undefined,
     };
   },
 
@@ -309,6 +351,12 @@ export const Packet: MessageFns<Packet> = {
     }
     if (message.version !== undefined) {
       obj.version = PacketVersion.toJSON(message.version);
+    }
+    if (message.target_packet !== undefined) {
+      obj.target_packet = TargetPacket.toJSON(message.target_packet);
+    }
+    if (message.target_packet_list !== undefined) {
+      obj.target_packet_list = TargetPacketList.toJSON(message.target_packet_list);
     }
     return obj;
   },
@@ -344,6 +392,12 @@ export const Packet: MessageFns<Packet> = {
       : undefined;
     message.version = (object.version !== undefined && object.version !== null)
       ? PacketVersion.fromPartial(object.version)
+      : undefined;
+    message.target_packet = (object.target_packet !== undefined && object.target_packet !== null)
+      ? TargetPacket.fromPartial(object.target_packet)
+      : undefined;
+    message.target_packet_list = (object.target_packet_list !== undefined && object.target_packet_list !== null)
+      ? TargetPacketList.fromPartial(object.target_packet_list)
       : undefined;
     return message;
   },
@@ -2139,6 +2193,192 @@ export const SerialPacketEvent: MessageFns<SerialPacketEvent> = {
     message.packet = (object.packet !== undefined && object.packet !== null)
       ? Packet.fromPartial(object.packet)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseTargetPacket(): TargetPacket {
+  return { target_id: 0, lat: 0, lon: 0, alt: 0, time: 0 };
+}
+
+export const TargetPacket: MessageFns<TargetPacket> = {
+  encode(message: TargetPacket, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.target_id !== 0) {
+      writer.uint32(8).uint32(message.target_id);
+    }
+    if (message.lat !== 0) {
+      writer.uint32(17).double(message.lat);
+    }
+    if (message.lon !== 0) {
+      writer.uint32(25).double(message.lon);
+    }
+    if (message.alt !== 0) {
+      writer.uint32(33).double(message.alt);
+    }
+    if (message.time !== 0) {
+      writer.uint32(41).double(message.time);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TargetPacket {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTargetPacket();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.target_id = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 17) {
+            break;
+          }
+
+          message.lat = reader.double();
+          continue;
+        }
+        case 3: {
+          if (tag !== 25) {
+            break;
+          }
+
+          message.lon = reader.double();
+          continue;
+        }
+        case 4: {
+          if (tag !== 33) {
+            break;
+          }
+
+          message.alt = reader.double();
+          continue;
+        }
+        case 5: {
+          if (tag !== 41) {
+            break;
+          }
+
+          message.time = reader.double();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TargetPacket {
+    return {
+      target_id: isSet(object.target_id) ? globalThis.Number(object.target_id) : 0,
+      lat: isSet(object.lat) ? globalThis.Number(object.lat) : 0,
+      lon: isSet(object.lon) ? globalThis.Number(object.lon) : 0,
+      alt: isSet(object.alt) ? globalThis.Number(object.alt) : 0,
+      time: isSet(object.time) ? globalThis.Number(object.time) : 0,
+    };
+  },
+
+  toJSON(message: TargetPacket): unknown {
+    const obj: any = {};
+    if (message.target_id !== 0) {
+      obj.target_id = Math.round(message.target_id);
+    }
+    if (message.lat !== 0) {
+      obj.lat = message.lat;
+    }
+    if (message.lon !== 0) {
+      obj.lon = message.lon;
+    }
+    if (message.alt !== 0) {
+      obj.alt = message.alt;
+    }
+    if (message.time !== 0) {
+      obj.time = message.time;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TargetPacket>, I>>(base?: I): TargetPacket {
+    return TargetPacket.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TargetPacket>, I>>(object: I): TargetPacket {
+    const message = createBaseTargetPacket();
+    message.target_id = object.target_id ?? 0;
+    message.lat = object.lat ?? 0;
+    message.lon = object.lon ?? 0;
+    message.alt = object.alt ?? 0;
+    message.time = object.time ?? 0;
+    return message;
+  },
+};
+
+function createBaseTargetPacketList(): TargetPacketList {
+  return { packets: [] };
+}
+
+export const TargetPacketList: MessageFns<TargetPacketList> = {
+  encode(message: TargetPacketList, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.packets) {
+      TargetPacket.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TargetPacketList {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTargetPacketList();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.packets.push(TargetPacket.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TargetPacketList {
+    return {
+      packets: globalThis.Array.isArray(object?.packets)
+        ? object.packets.map((e: any) => TargetPacket.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: TargetPacketList): unknown {
+    const obj: any = {};
+    if (message.packets?.length) {
+      obj.packets = message.packets.map((e) => TargetPacket.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TargetPacketList>, I>>(base?: I): TargetPacketList {
+    return TargetPacketList.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TargetPacketList>, I>>(object: I): TargetPacketList {
+    const message = createBaseTargetPacketList();
+    message.packets = object.packets?.map((e) => TargetPacket.fromPartial(e)) || [];
     return message;
   },
 };

@@ -1,14 +1,18 @@
 use std::sync::Arc;
 
+use crate::general::simulation_commands::SimulationDataState;
 use crate::packet::{Packet, SerialPacketEvent};
+use crate::simulation::SimulationResultList;
 use crate::storage::file_logger::save_packet_fast;
 use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
 use crate::transport::{ConnectionInfo, StatableTransport};
+use crate::transport::udp::UDP_TARGET_DATA;
 
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[tauri::command]
@@ -37,7 +41,10 @@ pub async fn start_connection(
         .unwrap();
 
     state
-        .add_connection(id.clone(), Arc::new(transport) as Arc<dyn crate::transport::Transport + Send + Sync>)
+        .add_connection(
+            id.clone(),
+            Arc::new(transport) as Arc<dyn crate::transport::Transport + Send + Sync>,
+        )
         .await
         .map_err(|e| format!("Failed to add connection: {}", e))?;
 
@@ -128,7 +135,10 @@ pub async fn start_udp_connection(
         .unwrap();
 
     state
-        .add_connection(id.clone(), Arc::new(transport) as Arc<dyn crate::transport::Transport + Send + Sync>)
+        .add_connection(
+            id.clone(),
+            Arc::new(transport) as Arc<dyn crate::transport::Transport + Send + Sync>,
+        )
         .await
         .map_err(|e| format!("Failed to add connection: {}", e))?;
     Ok(())
@@ -144,4 +154,230 @@ pub async fn set_udp_remote_addr(
         .parse()
         .map_err(|e| format!("Invalid remote address: {}", e))?;
     state.set_udp_remote_addr(&id, addr).await
+}
+
+#[tauri::command]
+pub async fn start_simulation_udp_streaming(
+    state: State<'_, Manager>,
+    sim_state: tauri::State<'_, SimulationDataState>,
+    local_addr: String,
+    remote_addr: String,
+    interval_ms: u64,
+) -> Result<String, String> {
+    use crate::packet::TargetPacket;
+    use std::net::SocketAddr;
+    let local_addr: SocketAddr = local_addr
+        .parse()
+        .map_err(|e| format!("Invalid local_addr: {}", e))?;
+    let remote_addr: SocketAddr = remote_addr
+        .parse()
+        .map_err(|e| format!("Invalid remote_addr: {}", e))?;
+
+    // Extract simulation data before await
+    let packets = {
+        let sim_data_guard = sim_state.lock().await;
+        let simulation_data = sim_data_guard
+            .as_ref()
+            .ok_or("No simulation results in state. Run a simulation first.")?;
+        let mut packets = Vec::new();
+        for result in &simulation_data.results {
+            for state in &result.final_state {
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lat: state.lat,
+                    lon: state.lon,
+                    alt: state.alt,
+                    time: state.time.unwrap_or(0.0),
+                });
+            }
+        }
+        packets
+    };
+
+    state
+        .simulation_init_and_stream(local_addr, remote_addr, interval_ms, packets)
+        .await
+}
+
+#[tauri::command]
+pub async fn stop_simulation_udp_streaming(
+    state: State<'_, Manager>,
+    connection_id: String,
+) -> Result<(), String> {
+    state.stop_simulation_udp_streaming(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn share_target_to_udp_server(
+    state: State<'_, Manager>,
+    sim_state: tauri::State<'_, SimulationDataState>,
+    local_addr: String,
+    remote_addr: String,
+    interval_ms: u64,
+    target_id: u32,
+) -> Result<String, String> {
+    use crate::packet::TargetPacket;
+    use std::net::SocketAddr;
+    let local_addr: SocketAddr = local_addr
+        .parse()
+        .map_err(|e| format!("Invalid local_addr: {}", e))?;
+    let remote_addr: SocketAddr = remote_addr
+        .parse()
+        .map_err(|e| format!("Invalid remote_addr: {}", e))?;
+    let sim_data_guard = sim_state.lock().await;
+    let simulation_data = sim_data_guard
+        .as_ref()
+        .ok_or("No simulation results in state. Run a simulation first.")?;
+    let mut packets = Vec::new();
+    for result in &simulation_data.results {
+        if result.target_id == target_id {
+            for state in &result.final_state {
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lat: state.lat,
+                    lon: state.lon,
+                    alt: state.alt,
+                    time: state.time.unwrap_or(0.0),
+                });
+            }
+        }
+    }
+    if packets.is_empty() {
+        return Err(format!("No data found for target_id {}", target_id));
+    }
+    state
+        .simulation_init_and_stream(local_addr, remote_addr, interval_ms, packets)
+        .await
+}
+
+#[tauri::command]
+pub async fn stop_share_by_connection_id(
+    state: State<'_, Manager>,
+    connection_id: String,
+) -> Result<(), String> {
+    state.stop_simulation_udp_streaming(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn share_target_to_connection(
+    state: State<'_, Manager>,
+    sim_state: tauri::State<'_, crate::general::simulation_commands::SimulationDataState>,
+    target_id: u32,
+    connection_id: String,
+    interval_ms: u64,
+) -> Result<String, String> {
+    use crate::packet::{Packet, packet::Kind, TargetPacket};
+    use prost::Message;
+    use tokio::time;
+    use uuid::Uuid;
+    let sim_data_guard = sim_state.lock().await;
+    let simulation_data = sim_data_guard
+        .as_ref()
+        .ok_or("No simulation results in state. Run a simulation first.")?;
+    let mut packets = Vec::new();
+    for result in &simulation_data.results {
+        if result.target_id == target_id {
+            for state in &result.final_state {
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lat: state.lat,
+                    lon: state.lon,
+                    alt: state.alt,
+                    time: state.time.unwrap_or(0.0),
+                });
+            }
+        }
+    }
+    if packets.is_empty() {
+        return Err(format!("No data found for target_id {}", target_id));
+    }
+    let id = format!("share_{}_{}", target_id, Uuid::new_v4());
+    let manager_arc = state.inner().clone(); // Get Arc<Manager>
+    let conn_id = connection_id.clone();
+    let handle = tokio::spawn(async move {
+        for packet in packets {
+            let mut buf = Vec::new();
+            let data = Packet {
+                kind: Some(Kind::TargetPacket(packet)),
+            };
+            if let Ok(()) = data.encode(&mut buf) {
+                let _ = manager_arc.send_to(&conn_id, buf).await;
+            }
+            time::sleep(time::Duration::from_millis(interval_ms)).await;
+        }
+    });
+    // Store the handle for stopping later
+    let mut share_tasks = state.share_tasks.lock().await;
+    share_tasks.insert((id.clone(), connection_id.clone()), handle);
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn stop_share_to_connection(
+    state: State<'_, Manager>,
+    share_id: String,
+    connection_id: String,
+) -> Result<(), String> {
+    let mut share_tasks = state.share_tasks.lock().await;
+    if let Some(handle) = share_tasks.remove(&(share_id, connection_id)) {
+        handle.abort();
+        Ok(())
+    } else {
+        Err("Share task not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn list_active_shares(state: State<'_, Manager>) ->Result< Vec<(String, String)>,String> {
+    let share_tasks = state.share_tasks.lock().await;
+    Ok(share_tasks.keys().cloned().collect())
+}
+
+#[tauri::command]
+pub async fn list_udp_targets(connection_id: String) -> Result<Vec<crate::packet::TargetPacket>, String> {
+    let udp_map = UDP_TARGET_DATA.lock().await;
+    if let Some(targets) = udp_map.get(&connection_id) {
+        Ok(targets.values().cloned().collect())
+    } else {
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
+pub async fn share_udp_target_to_connection(
+    state: State<'_, Manager>,
+    udp_connection_id: String,
+    target_id: u32,
+    dest_connection_id: String,
+    interval_ms: u64,
+) -> Result<String, String> {
+    use crate::packet::{Packet, packet::Kind, TargetPacket};
+    use prost::Message;
+    use tokio::time;
+    use uuid::Uuid;
+    let id = format!("udp_share_{}_{}_{}", udp_connection_id, target_id, Uuid::new_v4());
+    let manager_arc = state.inner().clone();
+    let udp_conn_id = udp_connection_id.clone();
+    let dest_conn_id = dest_connection_id.clone();
+    let handle = tokio::spawn(async move {
+        loop {
+            let udp_map = UDP_TARGET_DATA.lock().await;
+            if let Some(targets) = udp_map.get(&udp_conn_id) {
+                if let Some(tp) = targets.get(&target_id) {
+                    let mut buf = Vec::new();
+                    let data = Packet {
+                        kind: Some(Kind::TargetPacket(tp.clone())),
+                    };
+                    if let Ok(()) = data.encode(&mut buf) {
+                        let _ = manager_arc.send_to(&dest_conn_id, buf).await;
+                    }
+                }
+            }
+            drop(udp_map);
+            time::sleep(time::Duration::from_millis(interval_ms)).await;
+        }
+    });
+    let mut share_tasks = state.share_tasks.lock().await;
+    share_tasks.insert((id.clone(), dest_connection_id.clone()), handle);
+    Ok(id)
 }

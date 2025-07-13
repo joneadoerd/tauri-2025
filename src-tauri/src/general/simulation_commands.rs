@@ -2,7 +2,8 @@ use crate::simulation::{Simulation, SimulationResultList};
 use base64::{engine::general_purpose, Engine as _};
 
 use prost::Message;
-use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex;
+use std::sync::{Arc};
 use tauri::State;
 use tauri_plugin_shell::ShellExt;
 
@@ -30,20 +31,7 @@ pub async fn simulation(
     match SimulationResultList::decode(&*buffer) {
         Ok(sim_results) => {
             // Save to state
-            let mut state = sim_state.lock().unwrap();
-            // let data :SimulationResultList= sim_results
-            //     .results
-            //     .into_iter().filter_map
-            //     (|mut f| Some(f.final_state.into_iter().map(|mut v|{
-            //         let c = GeocentricPosition::from_metres(v.pn, v.pe, v.h);
-            //         let p = Ellipsoid::WGS84.geocentric_to_geodetic_position(c);
-            //         let p_ll = LatLong::from_nvector(p.horizontal_position());
-            //         v.pe = p_ll.latitude().as_degrees();
-            //         v.pn =p_ll.longitude().as_degrees();
-            //         v.h = p.height().as_metres();
-            //         v
-
-            //     } ).collect::<Vec<F16State>>())).collect();
+            let mut state = sim_state.lock().await;
             *state = Some(sim_results.clone());
             Ok(serde_json::to_string(&sim_results)
                 .unwrap_or_else(|e| format!("Failed to serialize simulation results: {}", e)))
@@ -53,14 +41,16 @@ pub async fn simulation(
 }
 
 #[tauri::command]
-pub fn get_simulation_data(
+pub async fn get_simulation_data(
     sim_state: State<'_, SimulationDataState>,
-) -> Option<SimulationResultList> {
-    sim_state.lock().unwrap().clone()
+) -> Result<Option<SimulationResultList>, String> {
+    let state = sim_state.lock().await;
+    Ok(state.clone())
 }
 
 #[tauri::command]
-pub fn clear_simulation_data(sim_state: State<'_, SimulationDataState>) {
-    let mut state = sim_state.lock().unwrap();
+pub async fn clear_simulation_data(sim_state: State<'_, SimulationDataState>) -> Result<(), String> {
+    let mut state = sim_state.lock().await;
     *state = None;
+    Ok(())
 }

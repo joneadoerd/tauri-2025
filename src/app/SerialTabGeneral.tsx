@@ -50,10 +50,17 @@ import { Check, Activity, RefreshCw } from "lucide-react";
 import { SerialPacketEvent } from "@/gen/packet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import React from "react"; // Added for React.Fragment
+import {
+  SimulationResultList,
+  SimulationResult,
+  F16State,
+} from "@/gen/simulation";
 
 export default function SerialTabGeneral() {
   const [ports, setPorts] = useState<string[]>([]);
-  const [connections, setConnections] = useState<SerialConnectionInfo[]>([]);
+  const [connections, setConnections] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [data, setData] = useState<
     Record<string, { packet: Packet; timestamp: number; id?: string }[]>
   >({});
@@ -110,10 +117,133 @@ export default function SerialTabGeneral() {
     Record<string, Record<string, number>>
   >({});
   const [activeShares, setActiveShares] = useState<
-    Array<{ from: string; to: string }>
+    { shareId: string; connectionId: string }[]
   >([]);
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // --- Simulation UDP Streaming Section ---
+  const [simLocalAddr, setSimLocalAddr] = useState("0.0.0.0:6000");
+  const [simRemoteAddr, setSimRemoteAddr] = useState("127.0.0.1:9000");
+  const [simInterval, setSimInterval] = useState(1000);
+  const [simUdpConnId, setSimUdpConnId] = useState<string | null>(null);
+  const [simUdpError, setSimUdpError] = useState<string | null>(null);
+
+  const handleStartSimUdp = async () => {
+    setSimUdpError(null);
+    try {
+      const id = await invoke<string>("start_simulation_udp_streaming", {
+        localAddr: simLocalAddr,
+        remoteAddr: simRemoteAddr,
+        intervalMs: simInterval,
+      });
+      setSimUdpConnId(id);
+    } catch (e: any) {
+      setSimUdpError(
+        e?.toString() || "Failed to start UDP simulation streaming"
+      );
+    }
+  };
+
+  const handleStopSimUdp = async () => {
+    setSimUdpError(null);
+    if (!simUdpConnId) return;
+    try {
+      await invoke("stop_simulation_udp_streaming", {
+        connectionId: simUdpConnId,
+      });
+      setSimUdpConnId(null);
+    } catch (e: any) {
+      setSimUdpError(
+        e?.toString() || "Failed to stop UDP simulation streaming"
+      );
+    }
+  };
+
+  const [simResults, setSimResults] = useState<SimulationResultList | null>(
+    null
+  );
+  const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
+  const [loadingSimResults, setLoadingSimResults] = useState(false);
+
+  const isSimulationResultList = (res: any): res is SimulationResultList => {
+    return res && typeof res === "object" && Array.isArray(res.results);
+  };
+
+  const fetchSimResults = async () => {
+    setLoadingSimResults(true);
+    try {
+      const res = await invoke("get_simulation_data");
+      console.log("Fetched simulation results:", res);
+      if (isSimulationResultList(res) && res.results.length > 0) {
+        setSimResults(res as SimulationResultList);
+      } else {
+        setSimResults(null);
+      }
+    } catch (e) {
+      setSimResults(null);
+      console.error("Failed to fetch simulation results", e);
+    } finally {
+      setLoadingSimResults(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSimResults();
+  }, []);
+  // Use only one set of shareInterval/shareLocalAddr/shareRemoteAddr state for both simulation and target sharing
+  const [shareLocalAddr, setShareLocalAddr] = useState("0.0.0.0:6001");
+  const [shareRemoteAddr, setShareRemoteAddr] = useState("127.0.0.1:7001");
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareConnId, setShareConnId] = useState<string | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
+    string | null
+  >(null);
+
+  // Fetch simulation results from backend
+  useEffect(() => {
+    invoke("get_simulation_data").then((res: any) => {
+      if (res && res.results) setSimResults(res as SimulationResultList);
+    });
+  }, []);
+
+  useEffect(() => {
+    invoke("list_connections").then((res: any) => {
+      if (Array.isArray(res)) setConnections(res);
+    });
+  }, []);
+
+  const handleShareTarget = async () => {
+    setShareError(null);
+    if (!selectedTargetId || !selectedConnectionId) {
+      setShareError("Select a target and a connection");
+      return;
+    }
+    try {
+      const id = await invoke<string>("share_target_to_connection", {
+        targetId: selectedTargetId,
+        connectionId: selectedConnectionId,
+        intervalMs: shareInterval,
+      });
+      setShareConnId(id);
+    } catch (e: any) {
+      setShareError(e?.toString() || "Failed to share target");
+    }
+  };
+
+  const handleStopShare = async () => {
+    setShareError(null);
+    if (!shareConnId || !selectedConnectionId) return;
+    try {
+      await invoke("stop_share_to_connection", {
+        shareId: shareConnId,
+        connectionId: selectedConnectionId,
+      });
+      setShareConnId(null);
+    } catch (e: any) {
+      setShareError(e?.toString() || "Failed to stop sharing");
+    }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -143,19 +273,26 @@ export default function SerialTabGeneral() {
         let normalizedPacket: Packet = packet;
 
         // Determine packet type from the kind structure first
-        let packetType = "unknown";
+        let packetType = "other";
         const packetAny = normalizedPacket as any; // Type assertion to handle kind structure
         if (packetAny.kind) {
           if (packetAny.kind.Header) packetType = "header";
           else if (packetAny.kind.Payload) packetType = "payload";
           else if (packetAny.kind.Command) packetType = "command";
           else if (packetAny.kind.State) packetType = "state";
+          else if (packetAny.kind.TargetPacket) packetType = "TargetPacket";
+          else if (packetAny.kind.TargetPacketList)
+            packetType = "TargetPacketList";
+          else packetType = "other";
         } else {
           // Fallback: check top-level fields for protobuf-style packets
           if (packetAny.header) packetType = "header";
           else if (packetAny.payload) packetType = "payload";
           else if (packetAny.command) packetType = "command";
           else if (packetAny.state) packetType = "state";
+          else if (packetAny.TargetPacket) packetType = "TargetPacket";
+          else if (packetAny.TargetPacketList) packetType = "TargetPacketList";
+          else packetType = "other";
         }
 
         console.log(`Detected packet type: ${packetType} for ${id}`);
@@ -498,14 +635,25 @@ export default function SerialTabGeneral() {
   const handleStartShare = async () => {
     if (!shareFrom || !shareTo || shareFrom === shareTo) return;
     await startShare(shareFrom, shareTo, shareInterval);
-    setActiveShares((prev) => [...prev, { from: shareFrom, to: shareTo }]);
   };
 
-  const handleStopShare = async (from: string, to: string) => {
-    await stopShare(from, to);
-    setActiveShares((prev) =>
-      prev.filter((s) => !(s.from === from && s.to === to))
+  const fetchActiveShares = async () => {
+    const res = await invoke<[string, string][]>("list_active_shares");
+    setActiveShares(
+      res.map(([shareId, connectionId]) => ({ shareId, connectionId }))
     );
+  };
+
+  useEffect(() => {
+    fetchActiveShares();
+  }, [shareConnId]); // Refresh when a share is started/stopped
+
+  const handleStopActiveShare = async (
+    shareId: string,
+    connectionId: string
+  ) => {
+    await invoke("stop_share_to_connection", { shareId, connectionId });
+    fetchActiveShares();
   };
 
   const handleInitComs = async () => {
@@ -584,12 +732,20 @@ export default function SerialTabGeneral() {
   const initTwoServers = async () => {
     try {
       // Start A
-      await invoke("start_udp_connection", { prefix: "udpA", localAddr: initA });
+      await invoke("start_udp_connection", {
+        prefix: "udpA",
+        localAddr: initA,
+      });
       // Start B
-      await invoke("start_udp_connection", { prefix: "udpB", localAddr: initB });
+      await invoke("start_udp_connection", {
+        prefix: "udpB",
+        localAddr: initB,
+      });
       // Refresh and get IDs
       await refreshConnections();
-      const all = await invoke<{ id: string; name: string }[]>("list_connections");
+      const all = await invoke<{ id: string; name: string }[]>(
+        "list_connections"
+      );
       const udpA = all.find((c) => c.name.includes(initA));
       const udpB = all.find((c) => c.name.includes(initB));
       if (udpA && udpB) {
@@ -621,6 +777,146 @@ export default function SerialTabGeneral() {
     }
   };
 
+  // --- UDP Target Share Section State ---
+  const [udpShareSourceId, setUdpShareSourceId] = useState<string>("");
+  const [udpShareTargets, setUdpShareTargets] = useState<any[]>([]); // TargetPacket[]
+  const [udpShareSelectedTargetId, setUdpShareSelectedTargetId] = useState<
+    number | null
+  >(null);
+  const [udpShareDestConnId, setUdpShareDestConnId] = useState<string>("");
+  const [udpShareInterval, setUdpShareInterval] = useState(100);
+  // Replace single-share state with array
+  const [udpShareActive, setUdpShareActive] = useState<
+    Array<{
+      shareId: string;
+      sourceId: string;
+      targetId: number;
+      destId: string;
+      interval: number;
+    }>
+  >([]);
+  const [udpShareError, setUdpShareError] = useState<string | null>(null);
+  const [udpShareLoadingTargets, setUdpShareLoadingTargets] = useState(false);
+
+  // Fetch targets for selected UDP connection
+  const fetchUdpShareTargets = async (connId: string) => {
+    setUdpShareLoadingTargets(true);
+    setUdpShareTargets([]);
+    setUdpShareSelectedTargetId(null);
+    try {
+      const targets = await invoke<any[]>("list_udp_targets", {
+        connectionId: connId,
+      });
+      setUdpShareTargets(targets);
+      if (targets.length > 0) setUdpShareSelectedTargetId(targets[0].target_id);
+    } catch (e) {
+      setUdpShareTargets([]);
+    } finally {
+      setUdpShareLoadingTargets(false);
+    }
+  };
+
+  // When UDP source changes, fetch targets
+  useEffect(() => {
+    if (udpShareSourceId) fetchUdpShareTargets(udpShareSourceId);
+  }, [udpShareSourceId]);
+
+  // Auto-select first UDP connection
+  useEffect(() => {
+    if (!udpShareSourceId) {
+      const udp = connections.find((c) => c.name && c.name.startsWith("Udp("));
+      if (udp) setUdpShareSourceId(udp.id);
+    }
+  }, [connections, udpShareSourceId]);
+
+  // Auto-select first destination connection
+  useEffect(() => {
+    if (!udpShareDestConnId && connections.length > 0) {
+      setUdpShareDestConnId(connections[0].id);
+    }
+  }, [connections, udpShareDestConnId]);
+
+  // On Start Share, add to array
+  const handleStartUdpShare = async () => {
+    setUdpShareError(null);
+    if (!udpShareSourceId || !udpShareSelectedTargetId || !udpShareDestConnId) {
+      setUdpShareError("Select UDP source, target, and destination");
+      return;
+    }
+    // Prevent duplicate share (same source, target, dest)
+    if (
+      udpShareActive.some(
+        (s) =>
+          s.sourceId === udpShareSourceId &&
+          s.targetId === udpShareSelectedTargetId &&
+          s.destId === udpShareDestConnId
+      )
+    ) {
+      setUdpShareError("This share is already active.");
+      return;
+    }
+    try {
+      const shareId = await invoke<string>("share_udp_target_to_connection", {
+        udpConnectionId: udpShareSourceId,
+        targetId: udpShareSelectedTargetId,
+        destConnectionId: udpShareDestConnId,
+        intervalMs: udpShareInterval,
+      });
+      setUdpShareActive((prev) => [
+        ...prev,
+        {
+          shareId,
+          sourceId: udpShareSourceId,
+          targetId: udpShareSelectedTargetId,
+          destId: udpShareDestConnId,
+          interval: udpShareInterval,
+        },
+      ]);
+    } catch (e: any) {
+      setUdpShareError(e?.toString() || "Failed to start UDP share");
+    }
+  };
+
+  // On Stop Share, remove from array
+  const handleStopUdpShare = async (shareId: string, destId: string) => {
+    setUdpShareError(null);
+    try {
+      await invoke("stop_share_to_connection", {
+        shareId,
+        connectionId: destId,
+      });
+      setUdpShareActive((prev) => prev.filter((s) => s.shareId !== shareId));
+    } catch (e: any) {
+      setUdpShareError(e?.toString() || "Failed to stop UDP share");
+    }
+  };
+
+  // Add state for all active shares
+  const [allActiveShares, setAllActiveShares] = useState<
+    { shareId: string; connectionId: string }[]
+  >([]);
+  // Fetch all active shares
+  const fetchAllActiveShares = async () => {
+    const res = await invoke<[string, string][]>("list_active_shares");
+    setAllActiveShares(
+      res.map(([shareId, connectionId]) => ({ shareId, connectionId }))
+    );
+  };
+  // Fetch on mount and when shares change
+  useEffect(() => {
+    fetchAllActiveShares();
+  }, []);
+  useEffect(() => {
+    fetchAllActiveShares();
+  }, [udpShareActive]);
+  // Handler to stop any share
+  const handleStopAnyShare = async (shareId: string, connectionId: string) => {
+    await invoke("stop_share_to_connection", { shareId, connectionId });
+    fetchAllActiveShares();
+    // Also update udpShareActive if needed
+    setUdpShareActive((prev) => prev.filter((s) => s.shareId !== shareId));
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       {/* Header Section */}
@@ -640,6 +936,146 @@ export default function SerialTabGeneral() {
           </Button>
         </div>
       </div>
+      {/* Share Target from UDP Data Section (moved to top) */}
+      <div className="border rounded p-4 bg-muted mt-6">
+        <h4 className="font-semibold mb-2">Share Target from UDP Data</h4>
+        <div className="flex flex-col md:flex-row gap-4 items-end mb-2">
+          <div className="flex-1">
+            <Label>UDP Source Connection</Label>
+            <Select
+              value={udpShareSourceId}
+              onValueChange={(v) => setUdpShareSourceId(v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select UDP connection" />
+              </SelectTrigger>
+              <SelectContent>
+                {connections
+                  .filter((c) => c.name && c.name.startsWith("Udp("))
+                  .map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.id})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1">
+            <Label>Target</Label>
+            <Select
+              value={udpShareSelectedTargetId?.toString() ?? ""}
+              onValueChange={(v) => setUdpShareSelectedTargetId(Number(v))}
+              disabled={udpShareLoadingTargets || udpShareTargets.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    udpShareLoadingTargets ? "Loading..." : "Select target"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {udpShareTargets.map((t) => (
+                  <SelectItem key={t.target_id} value={t.target_id.toString()}>
+                    Target {t.target_id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1">
+            <Label>Destination Connection</Label>
+            <Select
+              value={udpShareDestConnId}
+              onValueChange={(v) => setUdpShareDestConnId(v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select destination" />
+              </SelectTrigger>
+              <SelectContent>
+                {connections.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({c.id})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1">
+            <Label>Interval (ms)</Label>
+            <Input
+              type="number"
+              min={1}
+              value={udpShareInterval}
+              onChange={(e) => setUdpShareInterval(Number(e.target.value))}
+              className="w-24"
+            />
+          </div>
+          <Button
+            onClick={handleStartUdpShare}
+            disabled={
+              !udpShareSourceId ||
+              !udpShareSelectedTargetId ||
+              !udpShareDestConnId
+            }
+            variant="default"
+          >
+            Start Share
+          </Button>
+        </div>
+        {udpShareActive.length > 0 && (
+          <div className="mt-2">
+            <table className="w-full text-xs border">
+              <thead>
+                <tr>
+                  <th>Share ID</th>
+                  <th>Source</th>
+                  <th>Target</th>
+                  <th>Destination</th>
+                  <th>Interval (ms)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {udpShareActive.map((s) => (
+                  <tr key={s.shareId}>
+                    <td className="font-mono">{s.shareId}</td>
+                    <td>{s.sourceId}</td>
+                    <td>{s.targetId}</td>
+                    <td>{s.destId}</td>
+                    <td>{s.interval}</td>
+                    <td>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleStopUdpShare(s.shareId, s.destId)}
+                      >
+                        Stop
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {udpShareActive.length === 0 && (
+          <div className="text-xs text-muted-foreground mt-2">
+            No active UDP shares. Stopping a share will NOT remove the data for
+            the destination connection. The monitor will keep showing the last
+            received packets until you disconnect or clear data.
+          </div>
+        )}
+        {udpShareError && (
+          <div style={{ color: "red", marginTop: 8 }}>{udpShareError}</div>
+        )}
+        {udpShareTargets.length > 0 && (
+          <div className="mt-2 text-xs text-muted-foreground">
+            Latest targets received:{" "}
+            {udpShareTargets.map((t) => t.target_id).join(", ")}
+          </div>
+        )}
+      </div>
       {/* Global Packet Type Counters */}
       {Object.keys(globalPacketTypeCounts).length > 0 && (
         <div className="mt-4">
@@ -655,19 +1091,27 @@ export default function SerialTabGeneral() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4">
-                {Object.entries(globalPacketTypeCounts).map(([type, count]) => (
-                  <div
-                    key={type}
-                    className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px]"
-                  >
-                    <span className="text-lg font-bold text-blue-700 capitalize">
-                      {type}
-                    </span>
-                    <span className="text-2xl font-mono text-green-700">
-                      {count}
-                    </span>
-                  </div>
-                ))}
+                {Object.entries(globalPacketTypeCounts).map(([type, count]) => {
+                  let label = type;
+                  if (type.toLowerCase() === "targetpacket")
+                    label = "TargetPacket";
+                  if (type.toLowerCase() === "targetpacketlist")
+                    label = "TargetPacketList";
+                  if (type.toLowerCase() === "other") label = "Other";
+                  return (
+                    <div
+                      key={type}
+                      className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px]"
+                    >
+                      <span className="text-lg font-bold text-blue-700 capitalize">
+                        {label}
+                      </span>
+                      <span className="text-2xl font-mono text-green-700">
+                        {count}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -775,6 +1219,9 @@ export default function SerialTabGeneral() {
         >
           {autoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
         </Button>
+        <Button onClick={fetchSimResults} disabled={loadingSimResults}>
+          {loadingSimResults ? "Refreshing..." : "Refresh Results Simulation"}
+        </Button>
       </div>
       {/* UDP Config Section */}
       <div className="border rounded p-4 bg-muted mt-6">
@@ -800,13 +1247,13 @@ export default function SerialTabGeneral() {
             <Label className="mb-1 block">Init 2 Servers</Label>
             <Input
               value={initA}
-              onChange={e => setInitA(e.target.value)}
+              onChange={(e) => setInitA(e.target.value)}
               placeholder="127.0.0.1:9000"
               className="mb-2"
             />
             <Input
               value={initB}
-              onChange={e => setInitB(e.target.value)}
+              onChange={(e) => setInitB(e.target.value)}
               placeholder="127.0.0.1:9001"
             />
           </div>
@@ -914,19 +1361,20 @@ export default function SerialTabGeneral() {
           </Select>
         </div>
         <div>
-          <Label>Share To</Label>
-          <Select value={shareTo} onValueChange={setShareTo}>
-            <SelectTrigger>
-              <SelectValue placeholder="To Connection" />
+          <Label>Destination Connection</Label>
+          <Select
+            value={selectedConnectionId ?? ""}
+            onValueChange={(v) => setSelectedConnectionId(v)}
+          >
+            <SelectTrigger style={{ width: 200 }}>
+              <SelectValue placeholder="Select connection" />
             </SelectTrigger>
             <SelectContent>
-              {connections
-                .filter((conn) => !!conn.id)
-                .map((conn) => (
-                  <SelectItem key={conn.id} value={conn.id}>
-                    {conn.id}
-                  </SelectItem>
-                ))}
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name} ({conn.id})
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -941,13 +1389,8 @@ export default function SerialTabGeneral() {
           />
         </div>
         <Button
-          onClick={handleStartShare}
-          disabled={
-            !shareFrom ||
-            !shareTo ||
-            shareFrom === shareTo ||
-            activeShares.some((s) => s.from === shareFrom && s.to === shareTo)
-          }
+          onClick={handleShareTarget}
+          disabled={!selectedTargetId || !selectedConnectionId}
           variant="default"
         >
           Start Share ({shareInterval}ms)
@@ -961,18 +1404,20 @@ export default function SerialTabGeneral() {
             </CardHeader>
             <CardContent>
               <ul className="space-y-2">
-                {activeShares.map(({ from, to }) => (
+                {activeShares.map(({ shareId, connectionId }) => (
                   <li
-                    key={from + "->" + to}
+                    key={shareId + "->" + connectionId}
                     className="flex items-center gap-2"
                   >
                     <span className="font-mono">
-                      {from} → {to}
+                      {shareId} → {connectionId}
                     </span>
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => handleStopShare(from, to)}
+                      onClick={() =>
+                        handleStopActiveShare(shareId, connectionId)
+                      }
                     >
                       Stop
                     </Button>
@@ -983,68 +1428,26 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
-      {/* Packet Counters */}
-      {Object.keys(packetCounts).length > 0 && (
-        <div className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Real-time Packet Counters
-              </CardTitle>
-              <CardDescription>
-                Live packet statistics for each connection
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(packetCounts).map(([connectionId, counts]) => (
-                  <Card
-                    key={connectionId}
-                    className="border-l-4 border-l-green-500"
-                  >
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-lg flex items-center justify-between">
-                        <span className="font-mono">{connectionId}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {counts.count}/s
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="grid grid-cols-2 gap-4">
-                        {connectionPacketTypeCounts[connectionId] ? (
-                          Object.entries(
-                            connectionPacketTypeCounts[connectionId]
-                          ).map(([type, count]) => (
-                            <div key={type} className="text-center">
-                              <div className="text-2xl font-bold text-blue-600">
-                                {count}
-                              </div>
-                              <div className="text-xs text-gray-500 capitalize">
-                                {type}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="text-center col-span-2 text-gray-400">
-                            No packets yet
-                          </div>
-                        )}
-                        <div className="text-center col-span-2">
-                          <div className="text-lg font-bold text-green-600">
-                            {counts.totalCount}
-                          </div>
-                          <div className="text-xs text-gray-500">Total</div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+      {shareConnId && (
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <Badge>
+            Sharing Target {selectedTargetId} to {selectedConnectionId} (Share
+            ID: {shareConnId})
+          </Badge>
+          <Button onClick={handleStopShare} variant="destructive" size="sm">
+            Stop Share
+          </Button>
         </div>
+      )}
+      {shareError && (
+        <div style={{ color: "red", marginTop: 8 }}>{shareError}</div>
       )}
       {/* Storage Statistics */}
       {Object.keys(storageStats).length > 0 && (
@@ -1127,8 +1530,161 @@ export default function SerialTabGeneral() {
           </Card>
         </div>
       )}
+
+      {/* Simulation UDP Streaming Section */}
+      <Separator className="my-6" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Simulation UDP Streaming</CardTitle>
+          <CardDescription>
+            Start or stop UDP streaming of simulation results.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <Label>Local Addr</Label>
+            <Input
+              value={simLocalAddr}
+              onChange={(e) => setSimLocalAddr(e.target.value)}
+              style={{ width: 160 }}
+            />
+            <Label>Remote Addr</Label>
+            <Input
+              value={simRemoteAddr}
+              onChange={(e) => setSimRemoteAddr(e.target.value)}
+              style={{ width: 160 }}
+            />
+            <Label>Interval (ms)</Label>
+            <Input
+              type="number"
+              value={simInterval}
+              onChange={(e) => setSimInterval(Number(e.target.value))}
+              style={{ width: 100 }}
+            />
+            <Button onClick={handleStartSimUdp} disabled={!!simUdpConnId}>
+              Start
+            </Button>
+            <Button
+              onClick={handleStopSimUdp}
+              disabled={!simUdpConnId}
+              variant="destructive"
+            >
+              Stop
+            </Button>
+          </div>
+          {simUdpConnId && (
+            <div style={{ marginTop: 8 }}>
+              <Badge>UDP Streaming Connection ID: {simUdpConnId}</Badge>
+            </div>
+          )}
+          {simUdpError && (
+            <div style={{ color: "red", marginTop: 8 }}>{simUdpError}</div>
+          )}
+        </CardContent>
+      </Card>
+      {allActiveShares.filter((s) => s.connectionId.startsWith("sim_udp_"))
+        .length > 0 && (
+        <div className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Active Simulation UDP Streams</CardTitle>
+              <CardDescription>
+                Currently running simulation UDP streaming shares. You can stop
+                them here.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <table style={{ width: "100%", fontSize: 14 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left" }}>Share ID</th>
+                    <th style={{ textAlign: "left" }}>Connection ID</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allActiveShares
+                    .filter((s) => s.connectionId.startsWith("sim_udp_"))
+                    .map((s) => (
+                      <tr key={s.shareId + s.connectionId}>
+                        <td>{s.shareId}</td>
+                        <td>{s.connectionId}</td>
+                        <td>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() =>
+                              handleStopAnyShare(s.shareId, s.connectionId)
+                            }
+                          >
+                            Stop
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {/* Global Active Shares */}
+      {activeShares.length > 0 && (
+        <div className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Active Shares</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {activeShares.map(({ shareId, connectionId }) => (
+                  <li
+                    key={shareId + "->" + connectionId}
+                    className="flex items-center gap-2"
+                  >
+                    <span className="font-mono">
+                      {shareId} → {connectionId}
+                    </span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() =>
+                        handleStopActiveShare(shareId, connectionId)
+                      }
+                    >
+                      Stop
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {shareConnId && (
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <Badge>
+            Sharing Target {selectedTargetId} to {selectedConnectionId} (Share
+            ID: {shareConnId})
+          </Badge>
+          <Button onClick={handleStopShare} variant="destructive" size="sm">
+            Stop Share
+          </Button>
+        </div>
+      )}
+      {shareError && (
+        <div style={{ color: "red", marginTop: 8 }}>{shareError}</div>
+      )}
+
       {/*List Connection */}
-      
+
       {connections.map((conn, index) => (
         <Card key={index} className="space-y-4">
           <CardHeader>
@@ -1239,7 +1795,7 @@ export default function SerialTabGeneral() {
           </CardContent>
         </Card>
       ))}
-      
+
       {/* Received Data Display */}
       <div className="mt-8">
         <h3 className="text-lg font-bold mb-4">Real-time Packet Data</h3>
@@ -1303,56 +1859,117 @@ export default function SerialTabGeneral() {
                         {data[id]
                           .slice(-20)
                           .reverse()
-                          .map(({ packet, timestamp, id: packetId }, index) => (
-                            <div
-                              key={packetId || `packet-${index}`}
-                              className="p-4 border rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors"
-                            >
-                              <div className="flex justify-between items-start mb-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-muted-foreground">
-                                    {new Date(timestamp).toLocaleTimeString()}
-                                  </span>
-                                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
-                                    Packet #{data[id].length - index}
-                                  </span>
+                          .map(({ packet, timestamp, id: packetId }, index) => {
+                            const kind: any = (packet as any).kind || {};
+                            let isTargetPacket = false;
+                            let isTargetPacketList = false;
+                            let targetPacket: any = null;
+                            let targetPacketList: any = null;
+                            if (kind.TargetPacket) {
+                              isTargetPacket = true;
+                              targetPacket = kind.TargetPacket;
+                            } else if (kind.TargetPacketList) {
+                              isTargetPacketList = true;
+                              targetPacketList = kind.TargetPacketList;
+                            }
+                            return (
+                              <div
+                                key={packetId || `packet-${index}`}
+                                className="p-4 border rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors"
+                              >
+                                <div className="flex justify-between items-start mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(timestamp).toLocaleTimeString()}
+                                    </span>
+                                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+                                      Packet #{data[id].length - index}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {Object.keys(packet).length} fields
+                                  </div>
                                 </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {Object.keys(packet).length} fields
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                {Object.entries(packet).map(([key, value]) => (
-                                  <div
-                                    key={key}
-                                    className="bg-background p-3 rounded border"
-                                  >
-                                    <div className="flex justify-between items-center mb-1">
-                                      <div className="text-sm font-semibold text-blue-600">
-                                        {key}
+                                <div className="space-y-2">
+                                  {isTargetPacket && (
+                                    <div className="bg-blue-50 p-3 rounded border">
+                                      <div className="font-bold text-blue-700 mb-1">
+                                        TargetPacket
                                       </div>
-                                      <div className="text-xs text-gray-500">
-                                        {typeof value} •{" "}
-                                        {Array.isArray(value)
-                                          ? value.length
-                                          : "N/A"}{" "}
-                                        items
+                                      <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
+                                        {JSON.stringify(targetPacket, null, 2)}
+                                      </pre>
+                                    </div>
+                                  )}
+                                  {isTargetPacketList && (
+                                    <div className="bg-green-50 p-3 rounded border">
+                                      <div className="font-bold text-green-700 mb-1">
+                                        TargetPacketList (
+                                        {Array.isArray(targetPacketList.packets)
+                                          ? targetPacketList.packets.length
+                                          : 0}{" "}
+                                        packets)
+                                      </div>
+                                      <div className="space-y-1">
+                                        {Array.isArray(
+                                          targetPacketList.packets
+                                        ) &&
+                                          targetPacketList.packets.map(
+                                            (tp: any, i: number) => {
+                                              return (
+                                                <div
+                                                  key={i}
+                                                  className="bg-white border rounded p-2 text-xs"
+                                                >
+                                                  <b>Target ID:</b>{" "}
+                                                  {tp.target_id}, <b>lat:</b>{" "}
+                                                  {tp.lat}, <b>lon:</b> {tp.lon}
+                                                  , <b>alt:</b> {tp.alt},{" "}
+                                                  <b>time:</b> {tp.time}
+                                                </div>
+                                              );
+                                            }
+                                          )}
                                       </div>
                                     </div>
-                                    <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
-                                      {JSON.stringify(value, null, 2)}
-                                    </pre>
-                                  </div>
-                                ))}
-                                {Object.keys(packet).length === 0 && (
-                                  <div className="text-xs text-gray-500 italic">
-                                    Empty packet
-                                  </div>
-                                )}
+                                  )}
+                                  {!isTargetPacket &&
+                                    !isTargetPacketList &&
+                                    Object.entries(packet).map(
+                                      ([key, value]) => (
+                                        <div
+                                          key={key}
+                                          className="bg-background p-3 rounded border"
+                                        >
+                                          <div className="flex justify-between items-center mb-1">
+                                            <div className="text-sm font-semibold text-blue-600">
+                                              {key}
+                                            </div>
+                                            <div className="text-xs text-gray-500">
+                                              {typeof value} •{" "}
+                                              {Array.isArray(value)
+                                                ? value.length
+                                                : "N/A"}{" "}
+                                              items
+                                            </div>
+                                          </div>
+                                          <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
+                                            {JSON.stringify(value, null, 2)}
+                                          </pre>
+                                        </div>
+                                      )
+                                    )}
+                                  {Object.keys(packet).length === 0 &&
+                                    !isTargetPacket &&
+                                    !isTargetPacketList && (
+                                      <div className="text-xs text-gray-500 italic">
+                                        Empty packet
+                                      </div>
+                                    )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
 
                         {data[id].length === 0 && (
                           <div className="text-center py-8 text-muted-foreground">
@@ -1374,7 +1991,6 @@ export default function SerialTabGeneral() {
 
         {/* Packet Type Breakdown */}
       </div>
-
     </div>
   );
 }

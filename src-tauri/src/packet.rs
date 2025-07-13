@@ -2,7 +2,7 @@
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Packet {
-    #[prost(oneof = "packet::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "packet::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub kind: ::core::option::Option<packet::Kind>,
 }
 /// Nested message and enum types in `Packet`.
@@ -28,6 +28,10 @@ pub mod packet {
         Flags(super::PacketFlags),
         #[prost(message, tag = "9")]
         Version(super::PacketVersion),
+        #[prost(message, tag = "10")]
+        TargetPacket(super::TargetPacket),
+        #[prost(message, tag = "11")]
+        TargetPacketList(super::TargetPacketList),
     }
 }
 #[derive(::serde::Serialize, ::serde::Deserialize)]
@@ -225,4 +229,24 @@ pub struct SerialPacketEvent {
     pub id: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "2")]
     pub packet: ::core::option::Option<Packet>,
+}
+#[derive(::serde::Serialize, ::serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TargetPacket {
+    #[prost(uint32, tag = "1")]
+    pub target_id: u32,
+    #[prost(double, tag = "2")]
+    pub lat: f64,
+    #[prost(double, tag = "3")]
+    pub lon: f64,
+    #[prost(double, tag = "4")]
+    pub alt: f64,
+    #[prost(double, tag = "5")]
+    pub time: f64,
+}
+#[derive(::serde::Serialize, ::serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TargetPacketList {
+    #[prost(message, repeated, tag = "1")]
+    pub packets: ::prost::alloc::vec::Vec<TargetPacket>,
 }
