@@ -4,8 +4,8 @@ use crate::packet::{Packet, SerialPacketEvent};
 use crate::storage::file_logger::save_packet_fast;
 use crate::transport::connection_manager::Manager;
 
-use crate::transport::serial::{SerialTransport, StartableTransport};
-use crate::transport::ConnectionInfo;
+use crate::transport::serial::SerialTransport;
+use crate::transport::{ConnectionInfo, StatableTransport};
 
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
@@ -43,6 +43,32 @@ pub async fn start_connection(
     Ok(())
 }
 
+/// Start sharing data from one serial connection to another by connection IDs and interval (ms)
+#[tauri::command]
+pub async fn start_serial_share(
+    state: State<'_, Manager>,
+    from_id: String,
+    to_id: String,
+    interval_ms: u64,
+) -> Result<(), String> {
+    let _tx = state
+        .share_data_between_ids(&from_id, &to_id, interval_ms)
+        .await
+        .map_err(|e| format!("Failed to start sharing: {}", e))?;
+    Ok(())
+}
+/// Stop sharing data between serial connections
+#[tauri::command]
+pub async fn stop_share(
+    state: State<'_, Manager>,
+    from_id: String,
+    to_id: String,
+) -> Result<(), String> {
+    state
+        .stop_share(&from_id, &to_id)
+        .await
+        .map_err(|e| format!("Failed to stop sharing: {}", e))
+}
 #[tauri::command]
 pub async fn stop_connection(state: State<'_, Manager>, id: String) -> Result<(), String> {
     let _ = state.stop(&id).await;

@@ -34,12 +34,12 @@ export async function listConnections(): Promise<SerialConnectionInfo[]> {
   return invoke<SerialConnectionInfo[]>("list_connections");
 }
 
-export async function startShare(fromId: string, toId: string) {
-  return invoke("start_share", { fromId, toId });
+export async function startShare(fromId: string, toId: string, intervalMs: number) {
+  return invoke("start_serial_share", { fromId, toId, intervalMs });
 }
 
-export async function stopShare() {
-  return invoke("stop_share");
+export async function stopShare(fromId: string, toId: string) {
+  return invoke("stop_share", { fromId, toId });
 }
 
 export async function getSavedData(connectionId: string): Promise<string[]> {

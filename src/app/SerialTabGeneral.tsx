@@ -72,6 +72,7 @@ export default function SerialTabGeneral() {
   const [packetType, setPacketType] = useState("Header");
   const [shareFrom, setShareFrom] = useState("");
   const [shareTo, setShareTo] = useState("");
+  const [shareInterval, setShareInterval] = useState(10); // ms
   const [sharing, setSharing] = useState(false);
   const [packetTypes, setPacketTypes] = useState<string[]>([
     "Header",
@@ -108,6 +109,7 @@ export default function SerialTabGeneral() {
   const [connectionPacketTypeCounts, setConnectionPacketTypeCounts] = useState<
     Record<string, Record<string, number>>
   >({});
+  const [activeShares, setActiveShares] = useState<Array<{ from: string; to: string }>>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -544,14 +546,14 @@ export default function SerialTabGeneral() {
   };
 
   const handleStartShare = async () => {
-    if (!shareFrom || !shareTo) return;
-    await startShare(shareFrom, shareTo);
-    setSharing(true);
-  };
+    if (!shareFrom || !shareTo || shareFrom === shareTo) return;
+    await startShare(shareFrom, shareTo, shareInterval);
+    setActiveShares((prev) => [...prev, { from: shareFrom, to: shareTo }]);
+  }
 
-  const handleStopShare = async () => {
-    await stopShare();
-    setSharing(false);
+  const handleStopShare = async (from: string, to: string) => {
+    await stopShare(from, to);
+    setActiveShares((prev) => prev.filter(s => !(s.from === from && s.to === to)));
   };
 
   const handleInitComs = async () => {
@@ -863,14 +865,45 @@ export default function SerialTabGeneral() {
             </SelectContent>
           </Select>
         </div>
+        <div>
+          <Label>Share Interval (ms)</Label>
+          <Input
+            type="number"
+            min={1}
+            value={shareInterval}
+            onChange={e => setShareInterval(Number(e.target.value))}
+            className="w-24"
+          />
+        </div>
         <Button
-          onClick={sharing ? handleStopShare : handleStartShare}
-          disabled={!shareFrom || !shareTo || shareFrom === shareTo}
-          variant={sharing ? "destructive" : "default"}
+          onClick={handleStartShare}
+          disabled={!shareFrom || !shareTo || shareFrom === shareTo || activeShares.some(s => s.from === shareFrom && s.to === shareTo)}
+          variant="default"
         >
-          {sharing ? "Stop Share" : "Start Share (10ms)"}
+          Start Share ({shareInterval}ms)
         </Button>
       </div>
+      {activeShares.length > 0 && (
+        <div className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Active Shares</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {activeShares.map(({ from, to }) => (
+                  <li key={from + "->" + to} className="flex items-center gap-2">
+                    <span className="font-mono">{from} → {to}</span>
+                    <Button variant="destructive" size="sm" onClick={() => handleStopShare(from, to)}>
+                      Stop
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Packet Counters */}
       {Object.keys(packetCounts).length > 0 && (

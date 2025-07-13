@@ -20,7 +20,7 @@ use general::{
     // commands::{
     //     list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
     // },
-    serial::SerialManager,
+    // serial::SerialManager,
     simulation_commands::{
         clear_simulation_data, get_simulation_data, simulation, SimulationDataState,
     },
@@ -130,6 +130,8 @@ async fn main() {
             transport::commands::list_serial_ports,
             transport::commands::list_connections,
             transport::commands::disconnect_all_connections,
+            transport::commands::start_serial_share,
+            transport::commands::stop_share,
             // general::commands::start_connection,
             // general::commands::stop_connection,
             // general::commands::send_packet,
