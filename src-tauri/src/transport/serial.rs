@@ -11,8 +11,8 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{error, info as trace_info};
 
 use crate::storage::file_logger::log_sent_data;
-use crate::transport::Transport;
-static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
+use crate::transport::{StatableTransport, Transport};
+pub static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[derive(Clone)]
@@ -62,14 +62,8 @@ impl Transport for SerialTransport {
         format!("Serial({}:{})", self.port_name, self.baud_rate)
     }
 }
-pub trait StartableTransport: Transport {
-    async fn start<F: Message + Default + serde::Serialize>(
-        &mut self,
-        id: String,
-        on_packet: impl FnMut(String, F) + Send + 'static,
-    ) -> Result<(), String>;
-}
-impl StartableTransport for SerialTransport {
+
+impl StatableTransport for SerialTransport {
     async fn start<F: Message + Default + serde::Serialize>(
         &mut self,
         id: String,
@@ -78,7 +72,7 @@ impl StartableTransport for SerialTransport {
         let port = tokio_serial::new(&self.port_name, self.baud_rate)
             .open_native_async()
             .map_err(|e| e.to_string())?;
-        println!("[serialcom] Connected to {}", self.port_name);
+        trace_info!("[{}] Connected to {}", id, self.port_name);
         let (reader, writer) = tokio::io::split(port);
 
         let reader = Arc::new(Mutex::new(Some(reader)));
