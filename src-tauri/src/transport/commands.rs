@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
 use crate::general::simulation_commands::SimulationDataState;
-use crate::packet::{Packet, SerialPacketEvent};
-use crate::simulation::SimulationResultList;
+use crate::packet::TargetPacket;
+use crate::packet::{packet::Kind, Packet, SerialPacketEvent};
 use crate::storage::file_logger::save_packet_fast;
 use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
-use crate::transport::{ConnectionInfo, StatableTransport};
 use crate::transport::udp::UDP_TARGET_DATA;
+use crate::transport::{ConnectionInfo, StatableTransport};
 
+use prost::Message;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::Mutex;
+use tokio::time;
 use uuid::Uuid;
 
 #[tauri::command]
@@ -118,6 +119,12 @@ pub async fn start_udp_connection(
     let addr: std::net::SocketAddr = local_addr
         .parse()
         .map_err(|e| format!("Invalid address: {}", e))?;
+    
+    // Check if the socket address is already in use
+    if state.is_socket_address_in_use(addr).await {
+        return Err(format!("Socket address {} is already in use. Please stop any existing connections or simulation streaming using this address first.", local_addr));
+    }
+    
     let mut transport = UdpTransport::new(addr)
         .await
         .map_err(|e| format!("Failed to create UDP transport: {}", e))?;
@@ -173,6 +180,11 @@ pub async fn start_simulation_udp_streaming(
         .parse()
         .map_err(|e| format!("Invalid remote_addr: {}", e))?;
 
+    // Check if the socket address is already in use
+    if state.is_socket_address_in_use(local_addr).await {
+        return Err(format!("Socket address {} is already in use. Please stop any existing connections or simulation streaming using this address first.", local_addr));
+    }
+
     // Extract simulation data before await
     let packets = {
         let sim_data_guard = sim_state.lock().await;
@@ -224,6 +236,12 @@ pub async fn share_target_to_udp_server(
     let remote_addr: SocketAddr = remote_addr
         .parse()
         .map_err(|e| format!("Invalid remote_addr: {}", e))?;
+    
+    // Check if the socket address is already in use
+    if state.is_socket_address_in_use(local_addr).await {
+        return Err(format!("Socket address {} is already in use. Please stop any existing connections or simulation streaming using this address first.", local_addr));
+    }
+    
     let sim_data_guard = sim_state.lock().await;
     let simulation_data = sim_data_guard
         .as_ref()
@@ -266,10 +284,6 @@ pub async fn share_target_to_connection(
     connection_id: String,
     interval_ms: u64,
 ) -> Result<String, String> {
-    use crate::packet::{Packet, packet::Kind, TargetPacket};
-    use prost::Message;
-    use tokio::time;
-    use uuid::Uuid;
     let sim_data_guard = sim_state.lock().await;
     let simulation_data = sim_data_guard
         .as_ref()
@@ -328,19 +342,45 @@ pub async fn stop_share_to_connection(
 }
 
 #[tauri::command]
-pub async fn list_active_shares(state: State<'_, Manager>) ->Result< Vec<(String, String)>,String> {
+pub async fn list_active_shares(
+    state: State<'_, Manager>,
+) -> Result<Vec<(String, String)>, String> {
     let share_tasks = state.share_tasks.lock().await;
     Ok(share_tasks.keys().cloned().collect())
 }
 
 #[tauri::command]
-pub async fn list_udp_targets(connection_id: String) -> Result<Vec<crate::packet::TargetPacket>, String> {
+pub async fn list_active_simulation_streams(
+    state: State<'_, Manager>,
+) -> Result<Vec<String>, String> {
+    let simulation_stream_tasks = state.simulation_stream_tasks.lock().await;
+    Ok(simulation_stream_tasks.keys().cloned().collect())
+}
+
+#[tauri::command]
+pub async fn list_udp_targets(
+    connection_id: String,
+) -> Result<Vec<crate::packet::TargetPacket>, String> {
     let udp_map = UDP_TARGET_DATA.lock().await;
     if let Some(targets) = udp_map.get(&connection_id) {
         Ok(targets.values().cloned().collect())
     } else {
         Ok(vec![])
     }
+}
+
+#[tauri::command]
+pub async fn get_total_udp_targets() -> Result<u32, String> {
+    let udp_map = UDP_TARGET_DATA.lock().await;
+    let mut all_target_ids = std::collections::HashSet::new();
+
+    for (_, targets) in udp_map.iter() {
+        for target_id in targets.keys() {
+            all_target_ids.insert(*target_id);
+        }
+    }
+
+    Ok(all_target_ids.len() as u32)
 }
 
 #[tauri::command]
@@ -351,11 +391,12 @@ pub async fn share_udp_target_to_connection(
     dest_connection_id: String,
     interval_ms: u64,
 ) -> Result<String, String> {
-    use crate::packet::{Packet, packet::Kind, TargetPacket};
-    use prost::Message;
-    use tokio::time;
-    use uuid::Uuid;
-    let id = format!("udp_share_{}_{}_{}", udp_connection_id, target_id, Uuid::new_v4());
+    let id = format!(
+        "udp_share_{}_{}_{}",
+        udp_connection_id,
+        target_id,
+        Uuid::new_v4()
+    );
     let manager_arc = state.inner().clone();
     let udp_conn_id = udp_connection_id.clone();
     let dest_conn_id = dest_connection_id.clone();

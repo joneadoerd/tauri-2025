@@ -98,7 +98,11 @@ impl Manager {
         let ids: Vec<_> = connections.keys().cloned().collect();
         for id in &ids {
             if let Some(transport) = connections.remove(id) {
-                transport.stop().await;
+                // Add timeout to prevent hanging
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    transport.stop()
+                ).await;
             }
         }
         // Abort and remove all share tasks
@@ -106,12 +110,52 @@ impl Manager {
         for (_key, handle) in share_tasks.drain() {
             handle.abort();
         }
+        // Abort and remove all simulation streaming tasks
+        let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
+        for (_key, handle) in simulation_stream_tasks.drain() {
+            handle.abort();
+        }
         connections.clear();
     }
     pub async fn stop(&self, id: &str) -> Result<(), String> {
+        println!("[manager] Stopping connection {}", id);
         let mut connections = self.connections.lock().await;
-        if let Some(transport) = connections.remove(id) {
-            transport.stop().await;
+        if let Some(transport) = connections.get(id) {
+            // Check if this is a UDP connection and stop any simulation streaming using the same address
+            if let Some(udp_transport) = transport.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+                let local_addr = udp_transport.local_addr;
+                let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
+                let sim_keys: Vec<_> = simulation_stream_tasks.keys().cloned().collect();
+                for sim_id in sim_keys {
+                    // Get the connection for this simulation task
+                    if let Some(sim_conn) = connections.get(&sim_id) {
+                        if let Some(sim_udp) = sim_conn.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+                            if sim_udp.local_addr == local_addr {
+                                // Found a simulation streaming task using the same socket address
+                                if let Some(handle) = simulation_stream_tasks.remove(&sim_id) {
+                                    handle.abort();
+                                }
+                                // Also stop and remove the connection with timeout
+                                if let Some(sim_transport) = connections.remove(&sim_id) {
+                                    let _ = tokio::time::timeout(
+                                        std::time::Duration::from_secs(3),
+                                        sim_transport.stop()
+                                    ).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Now stop the original connection with timeout
+            if let Some(transport) = connections.remove(id) {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    transport.stop()
+                ).await;
+            }
+            
             // Abort and remove all share tasks for this connection
             let mut share_tasks = self.share_tasks.lock().await;
             let keys: Vec<_> = share_tasks.keys().cloned().collect();
@@ -122,8 +166,10 @@ impl Manager {
                     }
                 }
             }
+            println!("[manager] Successfully stopped connection {}", id);
             Ok(())
         } else {
+            println!("[manager] Connection {} not found", id);
             Err(format!("Connection ID '{}' not found", id))
         }
     }
@@ -154,6 +200,19 @@ impl Manager {
         } else {
             Err(format!("No connection found for id {}", id))
         }
+    }
+
+    /// Check if a socket address is already in use by any connection
+    pub async fn is_socket_address_in_use(&self, addr: std::net::SocketAddr) -> bool {
+        let connections = self.connections.lock().await;
+        for (_, transport) in connections.iter() {
+            if let Some(udp) = transport.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+                if udp.local_addr == addr {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Initialize simulation, create UDP server, and start sending TargetPacket data
@@ -215,10 +274,42 @@ impl Manager {
 
     /// Stop simulation UDP streaming by aborting the spawned task and stopping the connection
     pub async fn stop_simulation_udp_streaming(&self, id: &str) -> Result<(), String> {
-        let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
-        if let Some(handle) = simulation_stream_tasks.remove(id) {
-            handle.abort();
+        println!("[manager] Stopping simulation UDP streaming for {}", id);
+        
+        // First, abort the simulation task immediately
+        {
+            let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
+            if let Some(handle) = simulation_stream_tasks.remove(id) {
+                println!("[manager] Aborting simulation task for {}", id);
+                handle.abort();
+            }
         }
-        self.stop(id).await
+        
+        // Use a simpler, more direct approach to avoid hanging
+        {
+            let mut connections = self.connections.lock().await;
+            if let Some(transport) = connections.remove(id) {
+                println!("[manager] Removing connection {} from map", id);
+                // Don't call transport.stop() as it might hang, just drop it
+                drop(transport);
+            }
+        }
+        
+        // Also clean up any share tasks for this connection
+        {
+            let mut share_tasks = self.share_tasks.lock().await;
+            let keys: Vec<_> = share_tasks.keys().cloned().collect();
+            for (share_id, conn_id) in keys {
+                if conn_id == id {
+                    if let Some(handle) = share_tasks.remove(&(share_id.clone(), conn_id)) {
+                        println!("[manager] Aborting share task for {}", share_id);
+                        handle.abort();
+                    }
+                }
+            }
+        }
+        
+        println!("[manager] Successfully stopped simulation UDP streaming for {}", id);
+        Ok(())
     }
 }

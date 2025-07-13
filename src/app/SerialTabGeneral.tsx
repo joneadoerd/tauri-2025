@@ -128,35 +128,113 @@ export default function SerialTabGeneral() {
   const [simInterval, setSimInterval] = useState(1000);
   const [simUdpConnId, setSimUdpConnId] = useState<string | null>(null);
   const [simUdpError, setSimUdpError] = useState<string | null>(null);
+  const [activeSimulationStreams, setActiveSimulationStreams] = useState<string[]>([]);
+  const [isStoppingSimUdp, setIsStoppingSimUdp] = useState(false);
+  const [isStartingSimUdp, setIsStartingSimUdp] = useState(false);
 
-  const handleStartSimUdp = async () => {
-    setSimUdpError(null);
+  const fetchActiveSimulationStreams = async () => {
     try {
-      const id = await invoke<string>("start_simulation_udp_streaming", {
-        localAddr: simLocalAddr,
-        remoteAddr: simRemoteAddr,
-        intervalMs: simInterval,
-      });
-      setSimUdpConnId(id);
-    } catch (e: any) {
-      setSimUdpError(
-        e?.toString() || "Failed to start UDP simulation streaming"
-      );
+      const streams = await invoke<string[]>("list_active_simulation_streams");
+      setActiveSimulationStreams(streams);
+    } catch (e) {
+      console.error("Failed to fetch active simulation streams:", e);
+      setActiveSimulationStreams([]);
     }
   };
 
-  const handleStopSimUdp = async () => {
+  const handleStartSimUdp = async () => {
+    if (isStartingSimUdp) return; // Prevent multiple clicks
+    
     setSimUdpError(null);
-    if (!simUdpConnId) return;
+    setIsStartingSimUdp(true);
+    
     try {
-      await invoke("stop_simulation_udp_streaming", {
-        connectionId: simUdpConnId,
-      });
-      setSimUdpConnId(null);
+      const id = await invokeWithTimeout("start_simulation_udp_streaming", {
+        localAddr: simLocalAddr,
+        remoteAddr: simRemoteAddr,
+        intervalMs: simInterval,
+      }, 5000) as string;
+      setSimUdpConnId(id);
+      
+      // Refresh with a small delay to let backend settle
+      setTimeout(() => {
+        fetchActiveSimulationStreams();
+      }, 1000);
     } catch (e: any) {
+      const errorMsg = e?.toString() || "Failed to start UDP simulation streaming";
+      setSimUdpError(errorMsg);
+      // If it's a socket address conflict, suggest stopping existing connections
+      if (errorMsg.includes("already in use")) {
+        setSimUdpError(`${errorMsg}. Please stop any existing connections or simulation streaming using this address first.`);
+      }
+    } finally {
+      setIsStartingSimUdp(false);
+    }
+  };
+
+  // Helper function to add timeout to invoke calls
+  const invokeWithTimeout = async (command: string, args: any, timeoutMs: number = 5000) => {
+    return Promise.race([
+      invoke(command, args),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error(`${command} timed out after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
+  };
+
+  const handleStopSimUdp = async () => {
+    if (isStoppingSimUdp) return; // Prevent multiple clicks
+    
+    setSimUdpError(null);
+    setIsStoppingSimUdp(true);
+    
+    try {
+      // If we have a specific simUdpConnId, stop that one
+      if (simUdpConnId) {
+        try {
+          await invokeWithTimeout("stop_simulation_udp_streaming", {
+            connectionId: simUdpConnId,
+          }, 3000);
+          setSimUdpConnId(null);
+        } catch (e) {
+          console.error("Failed to stop specific simulation stream:", e);
+          // Even if it fails, clear the state
+          setSimUdpConnId(null);
+        }
+      } 
+      // If no specific simUdpConnId but we have active simulation streams, stop them one by one
+      else if (activeSimulationStreams.length > 0) {
+        // Stop streams one by one to avoid overwhelming the backend
+        for (const streamId of activeSimulationStreams) {
+          try {
+            await invokeWithTimeout("stop_simulation_udp_streaming", {
+              connectionId: streamId,
+            }, 3000);
+            console.log(`Successfully stopped stream: ${streamId}`);
+          } catch (e) {
+            console.error(`Failed to stop stream ${streamId}:`, e);
+            // Continue with other streams even if one fails
+          }
+        }
+      }
+      
+      // Always refresh the state, even if some operations failed
+      setTimeout(() => {
+        fetchActiveSimulationStreams();
+      }, 1000); // Small delay to let backend settle
+      
+    } catch (e: any) {
+      console.error("Error in handleStopSimUdp:", e);
       setSimUdpError(
         e?.toString() || "Failed to stop UDP simulation streaming"
       );
+    } finally {
+      setIsStoppingSimUdp(false);
+      
+      // Force refresh state after a longer delay as fallback
+      setTimeout(() => {
+        fetchActiveSimulationStreams();
+      }, 3000);
     }
   };
 
@@ -165,6 +243,8 @@ export default function SerialTabGeneral() {
   );
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
   const [loadingSimResults, setLoadingSimResults] = useState(false);
+  // Add state for target count
+  const [targetCount, setTargetCount] = useState<number>(0);
 
   const isSimulationResultList = (res: any): res is SimulationResultList => {
     return res && typeof res === "object" && Array.isArray(res.results);
@@ -177,11 +257,15 @@ export default function SerialTabGeneral() {
       console.log("Fetched simulation results:", res);
       if (isSimulationResultList(res) && res.results.length > 0) {
         setSimResults(res as SimulationResultList);
+        setTargetCount(res.results.length);
+        console.log(`Loaded ${res.results.length} targets from simulation results`);
       } else {
         setSimResults(null);
+        setTargetCount(0);
       }
     } catch (e) {
       setSimResults(null);
+      setTargetCount(0);
       console.error("Failed to fetch simulation results", e);
     } finally {
       setLoadingSimResults(false);
@@ -190,6 +274,7 @@ export default function SerialTabGeneral() {
 
   useEffect(() => {
     fetchSimResults();
+    fetchActiveSimulationStreams();
   }, []);
   // Use only one set of shareInterval/shareLocalAddr/shareRemoteAddr state for both simulation and target sharing
   const [shareLocalAddr, setShareLocalAddr] = useState("0.0.0.0:6001");
@@ -203,7 +288,10 @@ export default function SerialTabGeneral() {
   // Fetch simulation results from backend
   useEffect(() => {
     invoke("get_simulation_data").then((res: any) => {
-      if (res && res.results) setSimResults(res as SimulationResultList);
+      if (res && res.results) {
+        setSimResults(res as SimulationResultList);
+        setTargetCount(res.results.length);
+      }
     });
   }, []);
 
@@ -428,6 +516,11 @@ export default function SerialTabGeneral() {
             [id]: updatedLogs,
           };
         });
+
+        // Update total UDP targets when we receive TargetPacket or TargetPacketList
+        if (packetType === "TargetPacket" || packetType === "TargetPacketList") {
+          fetchTotalUdpTargets();
+        }
       }
     );
     unlisten.then((un) => unlistenAll.push(un));
@@ -435,6 +528,11 @@ export default function SerialTabGeneral() {
       unlistenAll.forEach((fn) => fn());
     };
   }, [activeTab]);
+
+  // Add useEffect to fetch total targets on component mount
+  useEffect(() => {
+    fetchTotalUdpTargets();
+  }, []);
 
   useEffect(() => {
     if (connections.length > 0 && !shareFrom) {
@@ -485,6 +583,13 @@ export default function SerialTabGeneral() {
       delete updated[id];
       return updated;
     });
+    
+    // If this is a simulation UDP connection, also update simUdpConnId
+    if (id.startsWith("sim_udp_") && simUdpConnId === id) {
+      setSimUdpConnId(null);
+      console.log("Simulation UDP connection stopped from disconnect button");
+    }
+    
     const updated = await listConnections();
     setConnections(updated);
   };
@@ -670,9 +775,17 @@ export default function SerialTabGeneral() {
 
   const refreshConnections = async () => {
     setRefreshing(true);
-    const conns = await listConnections();
-    setConnections(conns);
-    setRefreshing(false);
+    try {
+      const conns = await listConnections();
+      setConnections(conns);
+      await fetchAllActiveShares();
+      await fetchTotalUdpTargets();
+      await fetchActiveSimulationStreams();
+    } catch (e) {
+      console.error("Failed to refresh connections:", e);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Auto-refresh effect
@@ -723,8 +836,13 @@ export default function SerialTabGeneral() {
       setUdpStatus("UDP connection started");
       setUdpAddress("");
       refreshConnections();
-    } catch (e) {
-      setUdpStatus("Error: " + e);
+    } catch (e: any) {
+      const errorMsg = e?.toString() || "Failed to start UDP connection";
+      if (errorMsg.includes("already in use")) {
+        setUdpStatus(`${errorMsg}. Please stop any existing connections or simulation streaming using this address first.`);
+      } else {
+        setUdpStatus("Error: " + errorMsg);
+      }
     }
   };
 
@@ -756,8 +874,13 @@ export default function SerialTabGeneral() {
         setUdpStatus("Could not find both UDP servers after starting.");
       }
       refreshConnections();
-    } catch (e) {
-      setUdpStatus("Error initializing two servers: " + e);
+    } catch (e: any) {
+      const errorMsg = e?.toString() || "Failed to initialize two servers";
+      if (errorMsg.includes("already in use")) {
+        setUdpStatus(`${errorMsg}. Please stop any existing connections or simulation streaming using these addresses first.`);
+      } else {
+        setUdpStatus("Error initializing two servers: " + errorMsg);
+      }
     }
   };
 
@@ -909,13 +1032,239 @@ export default function SerialTabGeneral() {
   useEffect(() => {
     fetchAllActiveShares();
   }, [udpShareActive]);
+  // Helper function to check if a connection has active shares
+  const hasActiveShares = (connectionId: string): boolean => {
+    return allActiveShares.some(share => share.connectionId === connectionId);
+  };
+
+  // Helper function to count active shares for a connection
+  const getActiveSharesCount = (connectionId: string): number => {
+    return allActiveShares.filter(share => share.connectionId === connectionId).length;
+  };
+
+  // Helper function to check if any shares are active across all connections
+  const hasAnyActiveShares = (): boolean => {
+    return allActiveShares.length > 0;
+  };
+
+  // Helper function to check if there are any active simulation streams
+  const hasActiveSimulationStreams = (): boolean => {
+    return activeSimulationStreams.length > 0;
+  };
+
   // Handler to stop any share
   const handleStopAnyShare = async (shareId: string, connectionId: string) => {
     await invoke("stop_share_to_connection", { shareId, connectionId });
     fetchAllActiveShares();
     // Also update udpShareActive if needed
     setUdpShareActive((prev) => prev.filter((s) => s.shareId !== shareId));
+    
+    // If this is a simulation UDP stream, also update simUdpConnId
+    if (connectionId.startsWith("sim_udp_") && simUdpConnId === connectionId) {
+      setSimUdpConnId(null);
+      console.log("Simulation UDP connection stopped from active shares table");
+    }
   };
+
+  // --- Multiple UDP Listeners Section ---
+interface UdpListener {
+  id: string;
+  address: string;
+  connectionId: string | null;
+  status: string;
+  error: string | null;
+}
+
+const [udpListeners, setUdpListeners] = useState<UdpListener[]>([]);
+const [newUdpListenAddr, setNewUdpListenAddr] = useState("127.0.0.1:5000");
+
+const handleAddUdpListener = async () => {
+  if (!newUdpListenAddr) return;
+  
+  // Check if address is already in use
+  if (udpListeners.some(listener => listener.address === newUdpListenAddr)) {
+    alert("A listener on this address already exists!");
+    return;
+  }
+  
+  const listenerId = `listener_${Date.now()}`;
+  const newListener: UdpListener = {
+    id: listenerId,
+    address: newUdpListenAddr,
+    connectionId: null,
+    status: "Starting...",
+    error: null,
+  };
+  
+  setUdpListeners(prev => [...prev, newListener]);
+  
+  try {
+    await invoke("start_udp_connection", {
+      prefix: "udp_listener",
+      localAddr: newUdpListenAddr,
+    });
+    
+    // Refresh connections to get the new connection ID
+    const updated = await listConnections();
+    setConnections(updated);
+    
+    // Find the new UDP connection by address
+    const udpConn = updated.find(
+      (c) => c.name && c.name.includes(newUdpListenAddr)
+    );
+    
+    setUdpListeners(prev => prev.map(listener => 
+      listener.id === listenerId 
+        ? { 
+            ...listener, 
+            connectionId: udpConn?.id || null,
+            status: udpConn ? `Listening on ${newUdpListenAddr}` : "Failed to get connection ID",
+            error: null
+          }
+        : listener
+    ));
+    
+    setNewUdpListenAddr(""); // Clear input
+  } catch (e: any) {
+    setUdpListeners(prev => prev.map(listener => 
+      listener.id === listenerId 
+        ? { ...listener, status: "Failed", error: e?.toString() || "Failed to start UDP listener" }
+        : listener
+    ));
+  }
+};
+
+const handleRemoveUdpListener = async (listenerId: string) => {
+  const listener = udpListeners.find(l => l.id === listenerId);
+  if (!listener) return;
+  
+  if (listener.connectionId) {
+    try {
+      await invoke("stop_connection", { id: listener.connectionId });
+    } catch (e: any) {
+      console.error("Failed to stop connection:", e);
+    }
+  }
+  
+  setUdpListeners(prev => prev.filter(l => l.id !== listenerId));
+  
+  // Refresh connections
+  const updated = await listConnections();
+  setConnections(updated);
+};
+
+const handleStopUdpListener = async (listenerId: string) => {
+  const listener = udpListeners.find(l => l.id === listenerId);
+  if (!listener || !listener.connectionId) return;
+  
+  try {
+    await invoke("stop_connection", { id: listener.connectionId });
+    setUdpListeners(prev => prev.map(l => 
+      l.id === listenerId 
+        ? { ...l, status: "Stopped", connectionId: null }
+        : l
+    ));
+  } catch (e: any) {
+    setUdpListeners(prev => prev.map(l => 
+      l.id === listenerId 
+        ? { ...l, error: e?.toString() || "Failed to stop listener" }
+        : l
+    ));
+  }
+  
+  // Refresh connections
+  const updated = await listConnections();
+  setConnections(updated);
+};
+
+const handleStartUdpListener = async (listenerId: string) => {
+  const listener = udpListeners.find(l => l.id === listenerId);
+  if (!listener) return;
+  
+  try {
+    await invoke("start_udp_connection", {
+      prefix: "udp_listener",
+      localAddr: listener.address,
+    });
+    
+    // Refresh connections to get the new connection ID
+    const updated = await listConnections();
+    setConnections(updated);
+    
+    // Find the new UDP connection by address
+    const udpConn = updated.find(
+      (c) => c.name && c.name.includes(listener.address)
+    );
+    
+    setUdpListeners(prev => prev.map(l => 
+      l.id === listenerId 
+        ? { 
+            ...l, 
+            connectionId: udpConn?.id || null,
+            status: udpConn ? `Listening on ${listener.address}` : "Failed to get connection ID",
+            error: null
+          }
+        : l
+    ));
+  } catch (e: any) {
+    setUdpListeners(prev => prev.map(l => 
+      l.id === listenerId 
+        ? { ...l, status: "Failed", error: e?.toString() || "Failed to start UDP listener" }
+        : l
+    ));
+  }
+};
+
+  // Add state for total targets from all connections
+  const [totalUdpTargets, setTotalUdpTargets] = useState<number>(0);
+
+  const fetchTotalUdpTargets = async () => {
+    try {
+      const total = await invoke<number>("get_total_udp_targets");
+      setTotalUdpTargets(total);
+    } catch (e) {
+      console.error("Failed to fetch total UDP targets:", e);
+      setTotalUdpTargets(0);
+    }
+  };
+
+  // Add function to check if simulation UDP connection is still active
+  const checkSimUdpConnectionStatus = async () => {
+    if (!simUdpConnId) return;
+    
+    try {
+      // Get all connections and check if our simUdpConnId still exists
+      const allConnections = await listConnections();
+      const connectionExists = allConnections.some(conn => conn.id === simUdpConnId);
+      
+      if (!connectionExists) {
+        // Connection was stopped/removed from elsewhere, update our state
+        setSimUdpConnId(null);
+        console.log("Simulation UDP connection was stopped externally");
+      }
+      
+      // Also refresh active simulation streams
+      await fetchActiveSimulationStreams();
+    } catch (e) {
+      console.error("Failed to check simulation UDP connection status:", e);
+    }
+  };
+
+  // Add useEffect to periodically check connection status
+  useEffect(() => {
+    if (!simUdpConnId) return;
+    
+    const interval = setInterval(checkSimUdpConnectionStatus, 2000); // Check every 2 seconds
+    
+    return () => clearInterval(interval);
+  }, [simUdpConnId]);
+
+  // Also check when connections list changes
+  useEffect(() => {
+    if (simUdpConnId) {
+      checkSimUdpConnectionStatus();
+    }
+  }, [connections]);
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -1179,9 +1528,22 @@ export default function SerialTabGeneral() {
           Connect
         </Button>
 
-        <Button onClick={disconnectAllConnections} variant="destructive">
-          Disconnect All Connections
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            onClick={disconnectAllConnections} 
+            variant="destructive"
+            disabled={hasAnyActiveShares()}
+            title={hasAnyActiveShares() ? "Cannot disconnect all connections while shares are running. Stop all shares first." : "Disconnect All Connections"}
+            className={hasAnyActiveShares() ? "opacity-50 cursor-not-allowed" : ""}
+          >
+            Disconnect All Connections
+          </Button>
+          {hasAnyActiveShares() && (
+            <Badge variant="secondary" className="text-xs">
+              {allActiveShares.length} active share{allActiveShares.length !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
 
         <Button onClick={loadLogFiles} variant="outline" className="self-end">
           Load Log Files
@@ -1219,9 +1581,26 @@ export default function SerialTabGeneral() {
         >
           {autoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
         </Button>
-        <Button onClick={fetchSimResults} disabled={loadingSimResults}>
-          {loadingSimResults ? "Refreshing..." : "Refresh Results Simulation"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={fetchSimResults} disabled={loadingSimResults}>
+            {loadingSimResults 
+              ? "Refreshing..." 
+              : simResults 
+                ? `Refresh Results Simulation (${targetCount} targets)`
+                : "Refresh Results Simulation"
+            }
+          </Button>
+          {targetCount > 0 && (
+            <Badge variant="secondary" className="ml-2">
+              {targetCount} targets loaded
+            </Badge>
+          )}
+          {totalUdpTargets > 0 && (
+            <Badge variant="outline" className="ml-2">
+              {totalUdpTargets} UDP targets across all connections
+            </Badge>
+          )}
+        </div>
       </div>
       {/* UDP Config Section */}
       <div className="border rounded p-4 bg-muted mt-6">
@@ -1561,24 +1940,63 @@ export default function SerialTabGeneral() {
               onChange={(e) => setSimInterval(Number(e.target.value))}
               style={{ width: 100 }}
             />
-            <Button onClick={handleStartSimUdp} disabled={!!simUdpConnId}>
-              Start
+            <Button 
+              onClick={handleStartSimUdp} 
+              disabled={!!simUdpConnId || activeSimulationStreams.length > 0 || isStartingSimUdp}
+              title={activeSimulationStreams.length > 0 ? "Stop existing simulation streams first" : "Start Simulation UDP Streaming"}
+            >
+              {isStartingSimUdp ? "Starting..." : "Start"}
             </Button>
             <Button
               onClick={handleStopSimUdp}
-              disabled={!simUdpConnId}
+              disabled={(!simUdpConnId && activeSimulationStreams.length === 0) || isStoppingSimUdp}
               variant="destructive"
+              title={!simUdpConnId && activeSimulationStreams.length === 0 ? "No simulation streaming to stop" : "Stop Simulation UDP Streaming"}
             >
-              Stop
+              {isStoppingSimUdp ? "Stopping..." : "Stop"}
             </Button>
+            {(simUdpConnId || activeSimulationStreams.length > 0) && (
+              <Button
+                onClick={() => {
+                  // Emergency stop - just clear the state
+                  setSimUdpConnId(null);
+                  setActiveSimulationStreams([]);
+                  setSimUdpError(null);
+                }}
+                variant="outline"
+                size="sm"
+                title="Emergency stop - clear state without backend call"
+              >
+                Force Clear
+              </Button>
+            )}
           </div>
-          {simUdpConnId && (
+          {(simUdpConnId || activeSimulationStreams.length > 0) && (
             <div style={{ marginTop: 8 }}>
-              <Badge>UDP Streaming Connection ID: {simUdpConnId}</Badge>
+              {simUdpConnId && (
+                <Badge className="mr-2">UDP Streaming Connection ID: {simUdpConnId}</Badge>
+              )}
+              {activeSimulationStreams.length > 0 && (
+                <Badge variant="secondary">
+                  {activeSimulationStreams.length} Active Stream{activeSimulationStreams.length !== 1 ? 's' : ''}
+                </Badge>
+              )}
             </div>
           )}
           {simUdpError && (
             <div style={{ color: "red", marginTop: 8 }}>{simUdpError}</div>
+          )}
+          {activeSimulationStreams.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <Label>Active Simulation Streams:</Label>
+              <div style={{ marginTop: 8 }}>
+                {activeSimulationStreams.map((streamId) => (
+                  <Badge key={streamId} style={{ marginRight: 8, marginBottom: 4 }}>
+                    {streamId}
+                  </Badge>
+                ))}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1693,6 +2111,11 @@ export default function SerialTabGeneral() {
                 <CardTitle className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                   {conn.id}
+                  {hasActiveShares(conn.id) && (
+                    <Badge variant="secondary" className="ml-2">
+                      {getActiveSharesCount(conn.id)} Active Share{getActiveSharesCount(conn.id) !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>Connected to {conn.name}</CardDescription>
               </div>
@@ -1722,6 +2145,9 @@ export default function SerialTabGeneral() {
                   onClick={() => disconnect(conn.id, conn.name, "Header")}
                   variant="destructive"
                   size="sm"
+                  disabled={hasActiveShares(conn.id)}
+                  title={hasActiveShares(conn.id) ? "Cannot disconnect while shares are running. Stop all shares first." : "Disconnect"}
+                  className={hasActiveShares(conn.id) ? "opacity-50 cursor-not-allowed" : ""}
                 >
                   Disconnect
                 </Button>
@@ -1765,6 +2191,32 @@ export default function SerialTabGeneral() {
                 {showLogData[conn.id] ? "Hide Log" : "Show Log"}
               </Button>
             </div>
+            
+            {/* Show active shares for this connection */}
+            {hasActiveShares(conn.id) && (
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="text-sm font-medium text-yellow-800 mb-2">
+                  Active Shares ({getActiveSharesCount(conn.id)})
+                </div>
+                <div className="space-y-1">
+                  {allActiveShares
+                    .filter(share => share.connectionId === conn.id)
+                    .map((share, index) => (
+                      <div key={index} className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-yellow-700">{share.shareId}</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleStopAnyShare(share.shareId, share.connectionId)}
+                          className="h-6 px-2 text-xs"
+                        >
+                          Stop
+                        </Button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
             {/* Log Data Display */}
             {showLogData[conn.id] && (
@@ -1991,6 +2443,86 @@ export default function SerialTabGeneral() {
 
         {/* Packet Type Breakdown */}
       </div>
+      <Separator className="my-6" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Multiple UDP Listeners</CardTitle>
+          <CardDescription>
+            Start multiple UDP listeners on different ports to receive data from various sources simultaneously.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Add New Listener */}
+          <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
+            <Label>Local Listen Addr</Label>
+            <Input
+              value={newUdpListenAddr}
+              onChange={(e) => setNewUdpListenAddr(e.target.value)}
+              style={{ width: 160 }}
+              placeholder="127.0.0.1:5000"
+            />
+            <Button onClick={handleAddUdpListener} disabled={!newUdpListenAddr}>
+              Add Listener
+            </Button>
+          </div>
+          
+          {/* List of Active Listeners */}
+          {udpListeners.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="font-semibold">Active Listeners ({udpListeners.length})</h4>
+              {udpListeners.map((listener) => (
+                <div key={listener.id} className="border rounded p-4 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-mono text-sm">{listener.address}</div>
+                      <div className="text-xs text-gray-600">
+                        Status: {listener.status}
+                        {listener.connectionId && (
+                          <span className="ml-2">(ID: {listener.connectionId})</span>
+                        )}
+                      </div>
+                      {listener.error && (
+                        <div className="text-xs text-red-600 mt-1">{listener.error}</div>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {listener.connectionId ? (
+                        <Button
+                          onClick={() => handleStopUdpListener(listener.id)}
+                          variant="destructive"
+                          size="sm"
+                        >
+                          Stop
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => handleStartUdpListener(listener.id)}
+                          size="sm"
+                        >
+                          Start
+                        </Button>
+                      )}
+                      <Button
+                        onClick={() => handleRemoveUdpListener(listener.id)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {udpListeners.length === 0 && (
+            <div className="text-gray-500 text-center py-4">
+              No UDP listeners configured. Add one above to start listening for UDP data.
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
