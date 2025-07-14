@@ -6,21 +6,54 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { isValidAddress, isValidInterval } from "@/utils/validation-utils"
+import type { BaseComponentProps } from "@/types"
 
-interface SimulationStreamingProps {
+/**
+ * Props for SimulationStreaming component
+ */
+interface SimulationStreamingProps extends BaseComponentProps {
+  /** Array of active simulation stream IDs */
   activeSimulationStreams: string[]
+  /** Current simulation UDP connection ID */
   simUdpConnId: string | null
+  /** Current simulation UDP error message */
   simUdpError: string | null
+  /** Function to start simulation UDP streaming */
   onStartSimulationUdp: (localAddr: string, remoteAddr: string, intervalMs: number) => Promise<string>
+  /** Function to stop simulation UDP streaming */
   onStopSimulationUdp: () => Promise<void>
 }
 
+/**
+ * SimulationStreaming Component
+ *
+ * Provides interface for simulation UDP streaming with:
+ * - Local and remote address configuration
+ * - Streaming interval settings
+ * - Active stream monitoring
+ * - Error handling and status display
+ *
+ * @param props - Component props
+ * @returns JSX element for simulation streaming controls
+ *
+ * @example
+ * ```tsx
+ * <SimulationStreaming
+ *   activeSimulationStreams={streams}
+ *   simUdpConnId={connectionId}
+ *   onStartSimulationUdp={handleStart}
+ *   onStopSimulationUdp={handleStop}
+ * />
+ * ```
+ */
 export function SimulationStreaming({
   activeSimulationStreams,
   simUdpConnId,
   simUdpError,
   onStartSimulationUdp,
   onStopSimulationUdp,
+  className,
 }: SimulationStreamingProps) {
   const [simLocalAddr, setSimLocalAddr] = useState("0.0.0.0:6000")
   const [simRemoteAddr, setSimRemoteAddr] = useState("127.0.0.1:9000")
@@ -28,8 +61,16 @@ export function SimulationStreaming({
   const [isStartingSimUdp, setIsStartingSimUdp] = useState(false)
   const [isStoppingSimUdp, setIsStoppingSimUdp] = useState(false)
 
+  /**
+   * Validates form inputs
+   */
+  const isFormValid = isValidAddress(simLocalAddr) && isValidAddress(simRemoteAddr) && isValidInterval(simInterval)
+
+  /**
+   * Handles starting simulation UDP streaming
+   */
   const handleStartSimUdp = async () => {
-    if (isStartingSimUdp) return
+    if (isStartingSimUdp || !isFormValid) return
 
     setIsStartingSimUdp(true)
     try {
@@ -41,6 +82,9 @@ export function SimulationStreaming({
     }
   }
 
+  /**
+   * Handles stopping simulation UDP streaming
+   */
   const handleStopSimUdp = async () => {
     if (isStoppingSimUdp) return
 
@@ -54,62 +98,93 @@ export function SimulationStreaming({
     }
   }
 
+  const hasActiveStreams = simUdpConnId || activeSimulationStreams.length > 0
+  const canStart = !hasActiveStreams && !isStartingSimUdp && isFormValid
+  const canStop = hasActiveStreams && !isStoppingSimUdp
+
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>Simulation UDP Streaming</CardTitle>
         <CardDescription>Start or stop UDP streaming of simulation results</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-          <div>
-            <Label>Local Address</Label>
-            <Input value={simLocalAddr} onChange={(e) => setSimLocalAddr(e.target.value)} placeholder="0.0.0.0:6000" />
+        <div className="flex flex-wrap gap-4 items-end">
+          {/* Local Address */}
+          <div className="flex flex-col">
+            <Label htmlFor="sim-local-addr">Local Address</Label>
+            <Input
+              id="sim-local-addr"
+              value={simLocalAddr}
+              onChange={(e) => setSimLocalAddr(e.target.value)}
+              placeholder="0.0.0.0:6000"
+              className={!isValidAddress(simLocalAddr) && simLocalAddr ? "border-red-500" : ""}
+            />
+            {simLocalAddr && !isValidAddress(simLocalAddr) && (
+              <span className="text-xs text-red-500 mt-1">Invalid address format</span>
+            )}
           </div>
 
-          <div>
-            <Label>Remote Address</Label>
+          {/* Remote Address */}
+          <div className="flex flex-col">
+            <Label htmlFor="sim-remote-addr">Remote Address</Label>
             <Input
+              id="sim-remote-addr"
               value={simRemoteAddr}
               onChange={(e) => setSimRemoteAddr(e.target.value)}
               placeholder="127.0.0.1:9000"
+              className={!isValidAddress(simRemoteAddr) && simRemoteAddr ? "border-red-500" : ""}
             />
+            {simRemoteAddr && !isValidAddress(simRemoteAddr) && (
+              <span className="text-xs text-red-500 mt-1">Invalid address format</span>
+            )}
           </div>
 
-          <div>
-            <Label>Interval (ms)</Label>
-            <Input type="number" value={simInterval} onChange={(e) => setSimInterval(Number(e.target.value))} min={1} />
+          {/* Interval */}
+          <div className="flex flex-col">
+            <Label htmlFor="sim-interval">Interval (ms)</Label>
+            <Input
+              id="sim-interval"
+              type="number"
+              value={simInterval}
+              onChange={(e) => setSimInterval(Number(e.target.value))}
+              min={1}
+              max={60000}
+              className={!isValidInterval(simInterval) ? "border-red-500" : ""}
+            />
+            {!isValidInterval(simInterval) && <span className="text-xs text-red-500 mt-1">Must be 1-60000ms</span>}
           </div>
 
+          {/* Start Button */}
           <Button
             onClick={handleStartSimUdp}
-            disabled={!!simUdpConnId || activeSimulationStreams.length > 0 || isStartingSimUdp}
+            disabled={!canStart}
             title={
-              activeSimulationStreams.length > 0
-                ? "Stop existing simulation streams first"
-                : "Start Simulation UDP Streaming"
+              !isFormValid
+                ? "Fix validation errors first"
+                : hasActiveStreams
+                  ? "Stop existing streams first"
+                  : "Start Simulation UDP Streaming"
             }
           >
             {isStartingSimUdp ? "Starting..." : "Start"}
           </Button>
 
+          {/* Stop Button */}
           <Button
             onClick={handleStopSimUdp}
-            disabled={(!simUdpConnId && activeSimulationStreams.length === 0) || isStoppingSimUdp}
+            disabled={!canStop}
             variant="destructive"
-            title={
-              !simUdpConnId && activeSimulationStreams.length === 0
-                ? "No simulation streaming to stop"
-                : "Stop Simulation UDP Streaming"
-            }
+            title={!hasActiveStreams ? "No simulation streaming to stop" : "Stop Simulation UDP Streaming"}
           >
             {isStoppingSimUdp ? "Stopping..." : "Stop"}
           </Button>
         </div>
 
-        {(simUdpConnId || activeSimulationStreams.length > 0) && (
+        {/* Status Display */}
+        {hasActiveStreams && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {simUdpConnId && <Badge>Connection: {simUdpConnId}</Badge>}
+            {simUdpConnId && <Badge variant="default">Connection: {simUdpConnId}</Badge>}
             {activeSimulationStreams.length > 0 && (
               <Badge variant="secondary">
                 {activeSimulationStreams.length} Active Stream{activeSimulationStreams.length !== 1 ? "s" : ""}
@@ -118,12 +193,16 @@ export function SimulationStreaming({
           </div>
         )}
 
-        {simUdpError && <div className="mt-4 text-sm text-red-600 p-2 bg-red-50 rounded">{simUdpError}</div>}
+        {/* Error Display */}
+        {simUdpError && (
+          <div className="mt-4 text-sm text-red-600 p-2 bg-red-50 rounded border border-red-200">{simUdpError}</div>
+        )}
 
+        {/* Active Streams List */}
         {activeSimulationStreams.length > 0 && (
           <div className="mt-4">
             <Label className="text-sm font-medium">Active Streams:</Label>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
               {activeSimulationStreams.map((streamId) => (
                 <Badge key={streamId} variant="outline" className="font-mono text-xs">
                   {streamId}

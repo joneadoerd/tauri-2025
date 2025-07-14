@@ -5,91 +5,163 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { invoke } from "@tauri-apps/api/core"
+import { Badge } from "@/components/ui/badge"
+import { startUdpConnection, listConnections, setUdpRemoteAddress } from "@/lib/communication-actions"
+import { isValidAddress } from "@/utils/validation-utils"
+import type { BaseComponentProps } from "@/types"
 
-interface UdpServerInitProps {
+/**
+ * Props for UdpServerInit component
+ */
+interface UdpServerInitProps extends BaseComponentProps {
+  /** Callback to refresh connections after initialization */
   onRefreshConnections: () => Promise<void>
 }
 
-export function UdpServerInit({ onRefreshConnections }: UdpServerInitProps) {
+/**
+ * UdpServerInit Component
+ *
+ * Provides functionality to initialize two UDP servers and connect them:
+ * - Creates two UDP connections with specified addresses
+ * - Automatically configures bidirectional communication
+ * - Provides status feedback and error handling
+ * - Validates address formats
+ *
+ * @param props - Component props
+ * @returns JSX element for UDP server initialization
+ *
+ * @example
+ * ```tsx
+ * <UdpServerInit onRefreshConnections={handleRefresh} />
+ * ```
+ */
+export function UdpServerInit({ onRefreshConnections, className }: UdpServerInitProps) {
   const [initA, setInitA] = useState("127.0.0.1:9000")
   const [initB, setInitB] = useState("127.0.0.1:9001")
   const [status, setStatus] = useState("")
   const [loading, setLoading] = useState(false)
 
+  /**
+   * Validates both server addresses
+   */
+  const areAddressesValid = isValidAddress(initA) && isValidAddress(initB)
+
+  /**
+   * Initializes two UDP servers and connects them bidirectionally
+   */
   const initTwoServers = async () => {
+    if (!areAddressesValid) {
+      setStatus("❌ Invalid address format. Use IP:PORT format.")
+      return
+    }
+
     setLoading(true)
     setStatus("Initializing servers...")
 
     try {
-      // Start A
-      await invoke("start_udp_connection", {
-        prefix: "udpA",
-        localAddr: initA,
-      })
+      // Start both UDP servers
+      await Promise.all([
+        startUdpConnection({ prefix: "udpA", localAddr: initA }),
+        startUdpConnection({ prefix: "udpB", localAddr: initB }),
+      ])
 
-      // Start B
-      await invoke("start_udp_connection", {
-        prefix: "udpB",
-        localAddr: initB,
-      })
-
-      // Refresh and get IDs
+      // Refresh connections to get the new connection IDs
       await onRefreshConnections()
-      const all = await invoke<{ id: string; name: string }[]>("list_connections")
+      const allConnections = await listConnections()
 
-      const udpA = all.find((c) => c.name.includes(initA))
-      const udpB = all.find((c) => c.name.includes(initB))
+      // Find the newly created UDP connections
+      const udpA = allConnections.find((c) => c.name.includes(initA))
+      const udpB = allConnections.find((c) => c.name.includes(initB))
 
       if (udpA && udpB) {
-        await invoke("set_udp_remote_addr", { id: udpA.id, remoteAddr: initB })
-        await invoke("set_udp_remote_addr", { id: udpB.id, remoteAddr: initA })
+        // Configure bidirectional communication
+        await Promise.all([setUdpRemoteAddress(udpA.id, initB), setUdpRemoteAddress(udpB.id, initA)])
+
         setStatus(`✅ Started and connected ${initA} ↔ ${initB}`)
       } else {
         setStatus("❌ Could not find both UDP servers after starting.")
       }
 
+      // Final refresh to update UI
       await onRefreshConnections()
-    } catch (e: any) {
-      const errorMsg = e?.toString() || "Failed to initialize two servers"
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.toString() || "Failed to initialize servers"
+
       if (errorMsg.includes("already in use")) {
         setStatus(`❌ ${errorMsg}. Please stop existing connections using these addresses first.`)
       } else {
         setStatus(`❌ Error: ${errorMsg}`)
       }
+
+      console.error("Failed to initialize UDP servers:", error)
     } finally {
       setLoading(false)
     }
   }
 
+  /**
+   * Gets status badge variant based on status message
+   */
+  const getStatusVariant = () => {
+    if (status.includes("✅")) return "default"
+    if (status.includes("❌")) return "destructive"
+    return "secondary"
+  }
+
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>Initialize Two UDP Servers</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>Server A Address</Label>
-            <Input value={initA} onChange={(e) => setInitA(e.target.value)} placeholder="127.0.0.1:9000" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Server A Configuration */}
+          <div className="flex flex-col">
+            <Label htmlFor="server-a">Server A Address</Label>
+            <Input
+              id="server-a"
+              value={initA}
+              onChange={(e) => setInitA(e.target.value)}
+              placeholder="127.0.0.1:9000"
+              className={!isValidAddress(initA) && initA ? "border-red-500" : ""}
+            />
+            {initA && !isValidAddress(initA) && (
+              <span className="text-xs text-red-500 mt-1">Invalid address format</span>
+            )}
           </div>
-          <div>
-            <Label>Server B Address</Label>
-            <Input value={initB} onChange={(e) => setInitB(e.target.value)} placeholder="127.0.0.1:9001" />
+
+          {/* Server B Configuration */}
+          <div className="flex flex-col">
+            <Label htmlFor="server-b">Server B Address</Label>
+            <Input
+              id="server-b"
+              value={initB}
+              onChange={(e) => setInitB(e.target.value)}
+              placeholder="127.0.0.1:9001"
+              className={!isValidAddress(initB) && initB ? "border-red-500" : ""}
+            />
+            {initB && !isValidAddress(initB) && (
+              <span className="text-xs text-red-500 mt-1">Invalid address format</span>
+            )}
           </div>
         </div>
 
-        <Button onClick={initTwoServers} disabled={loading || !initA || !initB} className="w-full">
+        {/* Initialize Button */}
+        <Button
+          onClick={initTwoServers}
+          disabled={loading || !initA || !initB || !areAddressesValid}
+          className="w-full"
+        >
           {loading ? "Initializing..." : "Initialize & Connect Two Servers"}
         </Button>
 
+        {/* Status Display */}
         {status && (
-          <div
-            className={`text-sm p-2 rounded ${
-              status.includes("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-            }`}
-          >
-            {status}
+          <div className="flex items-center gap-2">
+            <Badge variant={getStatusVariant()} className="flex-shrink-0">
+              Status
+            </Badge>
+            <span className="text-sm break-all">{status}</span>
           </div>
         )}
       </CardContent>

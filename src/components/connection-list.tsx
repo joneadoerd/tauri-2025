@@ -7,23 +7,63 @@ import { Label } from "@/components/ui/label"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useState } from "react"
-import type { Connection } from "@/hooks/use-serial-connections"
+import { truncateText } from "@/utils/text-utils"
+import type { Connection, BaseComponentProps } from "@/types"
 
-interface ConnectionListProps {
+/**
+ * Props for ConnectionList component
+ */
+interface ConnectionListProps extends BaseComponentProps {
+  /** Array of active connections */
   connections: Connection[]
+  /** Packet type counts organized by connection ID */
   connectionPacketTypeCounts: Record<string, Record<string, number>>
+  /** Log data organized by connection ID */
   logData: Record<string, string[]>
+  /** Log visibility state by connection ID */
   showLogData: Record<string, boolean>
+  /** Function to send header packet to connection */
   onSendHeader: (id: string, name: string) => void
+  /** Function to send payload packet to connection */
   onSendPayload: (id: string, name: string) => void
+  /** Function to clear data for connection */
   onClearData: (id: string) => void
+  /** Function to disconnect connection */
   onDisconnect: (id: string, name: string) => void
+  /** Function to load log data for connection */
   onLoadLogData: (connectionId: string) => Promise<void>
+  /** Function to toggle log data visibility */
   onToggleLogData: (connectionId: string) => void
+  /** Function to check if connection has active shares */
   hasActiveShares: (id: string) => boolean
+  /** Function to get active shares count for connection */
   getActiveSharesCount: (id: string) => number
 }
 
+/**
+ * ConnectionList Component
+ *
+ * Displays and manages all active connections with:
+ * - Collapsible connection cards with detailed information
+ * - Per-connection packet statistics and controls
+ * - Log management with scrollable display
+ * - Share status indicators and warnings
+ * - Connection lifecycle management
+ *
+ * @param props - Component props
+ * @returns JSX element for connection list
+ *
+ * @example
+ * ```tsx
+ * <ConnectionList
+ *   connections={connections}
+ *   connectionPacketTypeCounts={packetCounts}
+ *   onSendHeader={handleSendHeader}
+ *   onDisconnect={handleDisconnect}
+ *   hasActiveShares={hasActiveShares}
+ * />
+ * ```
+ */
 export function ConnectionList({
   connections,
   connectionPacketTypeCounts,
@@ -37,9 +77,13 @@ export function ConnectionList({
   onToggleLogData,
   hasActiveShares,
   getActiveSharesCount,
+  className,
 }: ConnectionListProps) {
   const [expandedConnections, setExpandedConnections] = useState<Record<string, boolean>>({})
 
+  /**
+   * Toggles the expanded state of a connection
+   */
   const toggleConnection = (id: string) => {
     setExpandedConnections((prev) => ({
       ...prev,
@@ -47,9 +91,106 @@ export function ConnectionList({
     }))
   }
 
+  /**
+   * Renders packet type counters for a connection
+   */
+  const renderPacketCounters = (connectionId: string) => {
+    const counts = connectionPacketTypeCounts[connectionId]
+    if (!counts) return null
+
+    return (
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Packet Types</Label>
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(counts).map(([type, count]) => (
+            <div
+              key={type}
+              className="flex flex-col items-center p-2 bg-blue-50 rounded min-w-[60px] hover:bg-blue-100 transition-colors"
+              title={`${type}: ${count} packets`}
+            >
+              <span className="text-xs font-semibold text-blue-700 capitalize">{type}</span>
+              <span className="text-sm font-mono text-green-700">{count.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  /**
+   * Renders log management section for a connection
+   */
+  const renderLogManagement = (connectionId: string) => {
+    const logs = logData[connectionId] || []
+    const isLogVisible = showLogData[connectionId]
+
+    return (
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <Button onClick={() => onLoadLogData(connectionId)} variant="outline" size="sm">
+            Load Log
+          </Button>
+          <Button onClick={() => onToggleLogData(connectionId)} variant="outline" size="sm">
+            {isLogVisible ? "Hide Log" : "Show Log"}
+          </Button>
+        </div>
+
+        {isLogVisible && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs font-medium text-muted-foreground">Log Data</Label>
+              <Badge variant="secondary" className="text-xs">
+                {logs.length} entries
+              </Badge>
+            </div>
+            <div className="h-64 overflow-auto rounded border bg-gray-50 text-xs font-mono">
+              <div className="p-3 space-y-1">
+                {logs.map((logLine, index) => (
+                  <div
+                    key={index}
+                    className="py-1 px-2 border-b border-gray-200 last:border-b-0 hover:bg-gray-100 rounded transition-colors"
+                  >
+                    <div className="text-gray-700 break-all">{logLine}</div>
+                  </div>
+                ))}
+                {logs.length === 0 && (
+                  <div className="text-gray-500 italic text-center py-8">No log data available</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /**
+   * Renders active shares warning for a connection
+   */
+  const renderActiveSharesWarning = (connectionId: string) => {
+    if (!hasActiveShares(connectionId)) return null
+
+    const shareCount = getActiveSharesCount(connectionId)
+
+    return (
+      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+        <div className="text-sm font-medium text-yellow-800 mb-1 flex items-center gap-2">
+          <span>Active Shares</span>
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+            {shareCount}
+          </Badge>
+        </div>
+        <div className="text-xs text-yellow-700">
+          This connection has active data shares. Stop all shares before disconnecting.
+        </div>
+      </div>
+    )
+  }
+
+  // Empty state
   if (connections.length === 0) {
     return (
-      <Card>
+      <Card className={className}>
         <CardHeader>
           <CardTitle>Active Connections</CardTitle>
         </CardHeader>
@@ -64,9 +205,12 @@ export function ConnectionList({
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${className}`}>
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Active Connections ({connections.length})</h3>
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <span>Active Connections</span>
+          <Badge variant="secondary">{connections.length}</Badge>
+        </h3>
       </div>
 
       {connections.map((conn) => (
@@ -74,29 +218,32 @@ export function ConnectionList({
           <Collapsible open={expandedConnections[conn.id]} onOpenChange={() => toggleConnection(conn.id)}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CollapsibleTrigger className="flex items-center gap-2 hover:bg-muted/50 p-2 rounded -m-2">
+                <CollapsibleTrigger className="flex items-center gap-2 hover:bg-muted/50 p-2 rounded -m-2 flex-1 min-w-0">
                   {expandedConnections[conn.id] ? (
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4 flex-shrink-0" />
                   ) : (
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRight className="h-4 w-4 flex-shrink-0" />
                   )}
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                    <CardTitle className="text-base">{conn.id}</CardTitle>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+                    <CardTitle className="text-base truncate" title={conn.id}>
+                      {conn.id}
+                    </CardTitle>
                     {hasActiveShares(conn.id) && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs flex-shrink-0">
                         {getActiveSharesCount(conn.id)} Share{getActiveSharesCount(conn.id) !== 1 ? "s" : ""}
                       </Badge>
                     )}
                   </div>
                 </CollapsibleTrigger>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <Button
                     onClick={() => onSendHeader(conn.id, conn.name)}
                     size="sm"
                     variant="outline"
                     className="h-8 px-2 text-xs"
+                    title="Send header packet"
                   >
                     Header
                   </Button>
@@ -105,10 +252,17 @@ export function ConnectionList({
                     size="sm"
                     variant="outline"
                     className="h-8 px-2 text-xs"
+                    title="Send payload packet"
                   >
                     Payload
                   </Button>
-                  <Button onClick={() => onClearData(conn.id)} variant="outline" size="sm" className="h-8 px-2 text-xs">
+                  <Button
+                    onClick={() => onClearData(conn.id)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    title="Clear connection data"
+                  >
                     Clear
                   </Button>
                   <Button
@@ -125,67 +279,20 @@ export function ConnectionList({
               </div>
 
               <CardDescription className="text-sm" title={conn.name}>
-                {conn.name.length > 50 ? `${conn.name.substring(0, 50)}...` : conn.name}
+                {truncateText(conn.name, 60)}
               </CardDescription>
             </CardHeader>
 
             <CollapsibleContent>
               <CardContent className="pt-0 space-y-4">
-                {/* Per-connection packet type counters */}
-                {connectionPacketTypeCounts[conn.id] && (
-                  <div>
-                    <Label className="text-xs font-medium text-muted-foreground">Packet Types</Label>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {Object.entries(connectionPacketTypeCounts[conn.id]).map(([type, count]) => (
-                        <div key={type} className="flex flex-col items-center p-2 bg-blue-50 rounded min-w-[60px]">
-                          <span className="text-xs font-semibold text-blue-700 capitalize">{type}</span>
-                          <span className="text-sm font-mono text-green-700">{count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Packet Type Counters */}
+                {renderPacketCounters(conn.id)}
 
                 {/* Log Management */}
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <Button onClick={() => onLoadLogData(conn.id)} variant="outline" size="sm">
-                      Load Log
-                    </Button>
-                    <Button onClick={() => onToggleLogData(conn.id)} variant="outline" size="sm">
-                      {showLogData[conn.id] ? "Hide Log" : "Show Log"}
-                    </Button>
-                  </div>
+                {renderLogManagement(conn.id)}
 
-                  {/* Log Data Display */}
-                  {showLogData[conn.id] && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Log Data</Label>
-                      <div className="h-48 overflow-auto rounded border bg-gray-50 text-xs font-mono p-3">
-                        {(logData[conn.id] || []).map((logLine, index) => (
-                          <div key={index} className="py-1 border-b border-gray-200 last:border-b-0">
-                            <div className="text-gray-700">{logLine}</div>
-                          </div>
-                        ))}
-                        {(!logData[conn.id] || logData[conn.id].length === 0) && (
-                          <div className="text-gray-500 italic text-center py-8">No log data available</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Active Shares for this connection */}
-                {hasActiveShares(conn.id) && (
-                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
-                    <div className="text-sm font-medium text-yellow-800 mb-1">
-                      Active Shares ({getActiveSharesCount(conn.id)})
-                    </div>
-                    <div className="text-xs text-yellow-700">
-                      This connection has active data shares. Stop all shares before disconnecting.
-                    </div>
-                  </div>
-                )}
+                {/* Active Shares Warning */}
+                {renderActiveSharesWarning(conn.id)}
               </CardContent>
             </CollapsibleContent>
           </Collapsible>

@@ -115,7 +115,7 @@ export default function SerialTabGenerals() {
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Communication Monitor</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Serial Communication Monitor</h1>
           <p className="text-muted-foreground">Real-time packet monitoring and analysis</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

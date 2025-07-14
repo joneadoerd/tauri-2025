@@ -16,6 +16,31 @@ export interface UdpShare {
   interval: number
 }
 
+/**
+ * Custom hook for managing data sharing between connections
+ *
+ * Handles:
+ * - Active share tracking
+ * - UDP target sharing
+ * - Share lifecycle management
+ * - Share status monitoring
+ *
+ * @returns Object containing share state and management functions
+ *
+ * @example
+ * \`\`\`typescript
+ * const {
+ *   allActiveShares,
+ *   udpShareActive,
+ *   startUdpShare,
+ *   stopUdpShare,
+ *   hasActiveShares
+ * } = useShares()
+ *
+ * // Start sharing UDP target
+ * await startUdpShare("source-id", 123, "dest-id", 1000)
+ * \`\`\`
+ */
 export function useShares() {
   const [allActiveShares, setAllActiveShares] = useState<ActiveShare[]>([])
   const [udpShareActive, setUdpShareActive] = useState<UdpShare[]>([])
@@ -109,14 +134,23 @@ export function useShares() {
   }, [fetchAllActiveShares])
 
   return {
+    /** Array of all active shares */
     allActiveShares,
+    /** Array of active UDP shares */
     udpShareActive,
+    /** Function to fetch all active shares */
     fetchAllActiveShares,
+    /** Function to stop a specific share */
     stopShare,
+    /** Function to start UDP target sharing */
     startUdpShare,
+    /** Function to stop UDP target sharing */
     stopUdpShare,
+    /** Function to check if connection has active shares */
     hasActiveShares,
+    /** Function to get active shares count for connection */
     getActiveSharesCount,
+    /** Function to check if any shares are active */
     hasAnyActiveShares,
   }
 }

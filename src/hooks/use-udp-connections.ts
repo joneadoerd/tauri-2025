@@ -11,6 +11,30 @@ export interface UdpListener {
   error: string | null
 }
 
+/**
+ * Custom hook for managing UDP connections and listeners
+ *
+ * Provides functionality to:
+ * - Start UDP connections
+ * - Manage UDP listeners
+ * - Track connection status
+ * - Handle connection lifecycle
+ *
+ * @returns Object containing UDP connection state and management functions
+ *
+ * @example
+ * \`\`\`typescript
+ * const {
+ *   udpListeners,
+ *   startUdpConnection,
+ *   addUdpListener,
+ *   removeUdpListener
+ * } = useUdpConnections()
+ *
+ * // Add UDP listener
+ * await addUdpListener("127.0.0.1:5000")
+ * \`\`\`
+ */
 export function useUdpConnections() {
   const [udpListeners, setUdpListeners] = useState<UdpListener[]>([])
   const [udpStatus, setUdpStatus] = useState("")
@@ -107,10 +131,15 @@ export function useUdpConnections() {
   )
 
   return {
+    /** Array of active UDP listeners */
     udpListeners,
+    /** Current UDP connection status message */
     udpStatus,
+    /** Function to start a UDP connection */
     startUdpConnection,
+    /** Function to add a new UDP listener */
     addUdpListener,
+    /** Function to remove a UDP listener */
     removeUdpListener,
   }
 }

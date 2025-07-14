@@ -19,6 +19,37 @@ export interface PacketCounts {
   totalCount: number
 }
 
+/**
+ * Custom hook for managing real-time packet data processing
+ *
+ * Handles:
+ * - Real-time packet event listening
+ * - Packet type classification and counting
+ * - Data storage with connection-based organization
+ * - Packet deduplication
+ * - Statistics tracking
+ *
+ * @returns Object containing packet data state and management functions
+ *
+ * @example
+ * \`\`\`typescript
+ * const {
+ *   data,
+ *   packetCounts,
+ *   globalPacketTypeCounts,
+ *   connectionPacketTypeCounts,
+ *   clearData,
+ *   clearAllData,
+ *   removeConnectionData
+ * } = usePacketData()
+ *
+ * // Clear data for specific connection
+ * clearData("connection-id")
+ *
+ * // Clear all packet data
+ * clearAllData()
+ * \`\`\`
+ */
 export function usePacketData() {
   const [data, setData] = useState<Record<string, PacketData[]>>({})
   const [packetCounts, setPacketCounts] = useState<Record<string, PacketCounts>>({})
@@ -183,12 +214,19 @@ export function usePacketData() {
   }, [processedPackets])
 
   return {
+    /** Packet data organized by connection ID */
     data,
+    /** Real-time packet counts per connection */
     packetCounts,
+    /** Global packet type statistics */
     globalPacketTypeCounts,
+    /** Per-connection packet type statistics */
     connectionPacketTypeCounts,
+    /** Function to clear data for specific connection */
     clearData,
+    /** Function to clear all packet data */
     clearAllData,
+    /** Function to remove connection data completely */
     removeConnectionData,
   }
 }

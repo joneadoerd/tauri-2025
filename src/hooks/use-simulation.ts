@@ -4,6 +4,31 @@ import { useState, useCallback, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import type { SimulationResultList } from "@/gen/simulation"
 
+/**
+ * Custom hook for managing simulation data and UDP streaming
+ *
+ * Provides functionality to:
+ * - Fetch simulation results and target data
+ * - Manage UDP streaming connections
+ * - Track active simulation streams
+ * - Handle simulation errors
+ *
+ * @returns Object containing simulation state and management functions
+ *
+ * @example
+ * \`\`\`typescript
+ * const {
+ *   simResults,
+ *   targetCount,
+ *   activeSimulationStreams,
+ *   startSimulationUdp,
+ *   stopSimulationUdp
+ * } = useSimulation()
+ *
+ * // Start UDP streaming
+ * await startSimulationUdp("0.0.0.0:6000", "127.0.0.1:9000", 1000)
+ * \`\`\`
+ */
 export function useSimulation() {
   const [simResults, setSimResults] = useState<SimulationResultList | null>(null)
   const [targetCount, setTargetCount] = useState(0)
@@ -98,17 +123,29 @@ export function useSimulation() {
   }, [fetchSimResults, fetchActiveSimulationStreams, fetchTotalUdpTargets])
 
   return {
+    /** Current simulation results */
     simResults,
+    /** Number of targets in simulation */
     targetCount,
+    /** Whether simulation results are loading */
     loadingSimResults,
+    /** Array of active simulation stream IDs */
     activeSimulationStreams,
+    /** Current simulation UDP connection ID */
     simUdpConnId,
+    /** Current simulation UDP error message */
     simUdpError,
+    /** Total number of UDP targets */
     totalUdpTargets,
+    /** Function to fetch simulation results */
     fetchSimResults,
+    /** Function to fetch active simulation streams */
     fetchActiveSimulationStreams,
+    /** Function to fetch total UDP targets */
     fetchTotalUdpTargets,
+    /** Function to start simulation UDP streaming */
     startSimulationUdp,
+    /** Function to stop simulation UDP streaming */
     stopSimulationUdp,
   }
 }

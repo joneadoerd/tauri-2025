@@ -6,19 +6,55 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { Connection } from "@/hooks/use-serial-connections"
-import type { UdpShare } from "@/hooks/use-shares"
+import { Badge } from "@/components/ui/badge"
+import { truncateText } from "@/utils/text-utils"
+import { isValidInterval } from "@/utils/validation-utils"
+import type { Connection, UdpShare, BaseComponentProps } from "@/types"
 
-interface UdpTargetSharingProps {
+/**
+ * Props for UdpTargetSharing component
+ */
+interface UdpTargetSharingProps extends BaseComponentProps {
+  /** Array of all available connections */
   connections: Connection[]
+  /** Available UDP targets for sharing */
   udpShareTargets: any[]
+  /** Whether UDP targets are currently loading */
   udpShareLoadingTargets: boolean
+  /** Array of currently active UDP shares */
   udpShareActive: UdpShare[]
+  /** Function to fetch UDP targets for a connection */
   onFetchUdpTargets: (connectionId: string) => Promise<any[]>
+  /** Function to start a new UDP share */
   onStartUdpShare: (sourceId: string, targetId: number, destId: string, interval: number) => Promise<string>
+  /** Function to stop an active UDP share */
   onStopUdpShare: (shareId: string, destId: string) => Promise<void>
 }
 
+/**
+ * UdpTargetSharing Component
+ *
+ * Provides interface for sharing UDP target data between connections:
+ * - Source connection selection (UDP connections only)
+ * - Target selection from available targets
+ * - Destination connection selection
+ * - Interval configuration
+ * - Active share management
+ *
+ * @param props - Component props
+ * @returns JSX element for UDP target sharing
+ *
+ * @example
+ * ```tsx
+ * <UdpTargetSharing
+ *   connections={connections}
+ *   udpShareTargets={targets}
+ *   udpShareActive={activeShares}
+ *   onStartUdpShare={handleStartShare}
+ *   onStopUdpShare={handleStopShare}
+ * />
+ * ```
+ */
 export function UdpTargetSharing({
   connections,
   udpShareTargets,
@@ -27,6 +63,7 @@ export function UdpTargetSharing({
   onFetchUdpTargets,
   onStartUdpShare,
   onStopUdpShare,
+  className,
 }: UdpTargetSharingProps) {
   const [udpShareSourceId, setUdpShareSourceId] = useState("")
   const [udpShareSelectedTargetId, setUdpShareSelectedTargetId] = useState<number | null>(null)
@@ -34,17 +71,17 @@ export function UdpTargetSharing({
   const [udpShareInterval, setUdpShareInterval] = useState(100)
   const [udpShareError, setUdpShareError] = useState<string | null>(null)
 
-  // Filter UDP connections
+  // Filter UDP connections for source selection
   const udpConnections = connections.filter((c) => c.name && c.name.startsWith("Udp("))
 
-  // Auto-select first UDP connection
+  // Auto-select first UDP connection as source
   useEffect(() => {
     if (!udpShareSourceId && udpConnections.length > 0) {
       setUdpShareSourceId(udpConnections[0].id)
     }
   }, [udpConnections, udpShareSourceId])
 
-  // Auto-select first destination connection
+  // Auto-select first connection as destination
   useEffect(() => {
     if (!udpShareDestConnId && connections.length > 0) {
       setUdpShareDestConnId(connections[0].id)
@@ -65,20 +102,30 @@ export function UdpTargetSharing({
     }
   }, [udpShareTargets, udpShareSelectedTargetId])
 
+  /**
+   * Handles starting a new UDP share
+   */
   const handleStartUdpShare = async () => {
     setUdpShareError(null)
+
+    // Validation
     if (!udpShareSourceId || !udpShareSelectedTargetId || !udpShareDestConnId) {
       setUdpShareError("Select UDP source, target, and destination")
       return
     }
 
-    // Prevent duplicate share
-    if (
-      udpShareActive.some(
-        (s) =>
-          s.sourceId === udpShareSourceId && s.targetId === udpShareSelectedTargetId && s.destId === udpShareDestConnId,
-      )
-    ) {
+    if (!isValidInterval(udpShareInterval)) {
+      setUdpShareError("Invalid interval. Must be between 1ms and 60000ms")
+      return
+    }
+
+    // Check for duplicate share
+    const isDuplicate = udpShareActive.some(
+      (s) =>
+        s.sourceId === udpShareSourceId && s.targetId === udpShareSelectedTargetId && s.destId === udpShareDestConnId,
+    )
+
+    if (isDuplicate) {
       setUdpShareError("This share is already active.")
       return
     }
@@ -86,107 +133,143 @@ export function UdpTargetSharing({
     try {
       await onStartUdpShare(udpShareSourceId, udpShareSelectedTargetId, udpShareDestConnId, udpShareInterval)
     } catch (error: any) {
-      setUdpShareError(error?.toString() || "Failed to start UDP share")
+      setUdpShareError(error?.message || error?.toString() || "Failed to start UDP share")
     }
   }
 
+  /**
+   * Renders connection option with truncated name
+   */
+  const renderConnectionOption = (connection: Connection) => (
+    <SelectItem key={connection.id} value={connection.id} title={connection.name}>
+      <div className="flex flex-col">
+        <span className="font-medium">{truncateText(connection.name, 25)}</span>
+        <span className="text-xs text-muted-foreground">({connection.id})</span>
+      </div>
+    </SelectItem>
+  )
+
+  const isStartDisabled = !udpShareSourceId || !udpShareSelectedTargetId || !udpShareDestConnId
+
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>Share Target from UDP Data</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-          <div>
-            <Label>UDP Source Connection</Label>
+        {/* Configuration Form */}
+        <div className="flex flex-wrap gap-4 items-end">
+          {/* UDP Source Selection */}
+          <div className="flex flex-col">
+            <Label htmlFor="udp-source">UDP Source Connection</Label>
             <Select value={udpShareSourceId} onValueChange={setUdpShareSourceId}>
-              <SelectTrigger>
+              <SelectTrigger id="udp-source" title={udpConnections.find((c) => c.id === udpShareSourceId)?.name || ""}>
                 <SelectValue placeholder="Select UDP connection" />
               </SelectTrigger>
               <SelectContent>
-                {udpConnections.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name} ({c.id})
-                  </SelectItem>
-                ))}
+                <div className="flex flex-col">{udpConnections.map(renderConnectionOption)}</div>
               </SelectContent>
             </Select>
           </div>
 
-          <div>
-            <Label>Target</Label>
+          {/* Target Selection */}
+          <div className="flex flex-col">
+            <Label htmlFor="target-select">Target</Label>
             <Select
               value={udpShareSelectedTargetId?.toString() ?? ""}
               onValueChange={(v) => setUdpShareSelectedTargetId(Number(v))}
               disabled={udpShareLoadingTargets || udpShareTargets.length === 0}
             >
-              <SelectTrigger>
+              <SelectTrigger id="target-select">
                 <SelectValue placeholder={udpShareLoadingTargets ? "Loading..." : "Select target"} />
               </SelectTrigger>
               <SelectContent>
-                {udpShareTargets.map((t) => (
-                  <SelectItem key={t.target_id} value={t.target_id.toString()}>
-                    Target {t.target_id}
-                  </SelectItem>
-                ))}
+                <div className="flex flex-col">
+                  {udpShareTargets.map((t) => (
+                    <SelectItem key={t.target_id} value={t.target_id.toString()}>
+                      <div className="flex items-center">
+                        <span>Target {t.target_id}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </div>
               </SelectContent>
             </Select>
           </div>
 
-          <div>
-            <Label>Destination Connection</Label>
+          {/* Destination Selection */}
+          <div className="flex flex-col">
+            <Label htmlFor="destination-select">Destination Connection</Label>
             <Select value={udpShareDestConnId} onValueChange={setUdpShareDestConnId}>
-              <SelectTrigger>
+              <SelectTrigger
+                id="destination-select"
+                title={connections.find((c) => c.id === udpShareDestConnId)?.name || ""}
+              >
                 <SelectValue placeholder="Select destination" />
               </SelectTrigger>
               <SelectContent>
-                {connections.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name} ({c.id})
-                  </SelectItem>
-                ))}
+                <div className="flex flex-col">{connections.map(renderConnectionOption)}</div>
               </SelectContent>
             </Select>
           </div>
 
-          <div>
-            <Label>Interval (ms)</Label>
+          {/* Interval Configuration */}
+          <div className="flex flex-col">
+            <Label htmlFor="interval-input">Interval (ms)</Label>
             <Input
+              id="interval-input"
               type="number"
               min={1}
+              max={60000}
               value={udpShareInterval}
               onChange={(e) => setUdpShareInterval(Number(e.target.value))}
+              className={!isValidInterval(udpShareInterval) ? "border-red-500" : ""}
             />
           </div>
 
+          {/* Start Share Button */}
           <Button
             onClick={handleStartUdpShare}
-            disabled={!udpShareSourceId || !udpShareSelectedTargetId || !udpShareDestConnId}
+            disabled={isStartDisabled}
+            title={isStartDisabled ? "Select all required fields" : "Start sharing UDP target"}
           >
             Start Share
           </Button>
         </div>
 
-        {udpShareError && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{udpShareError}</div>}
+        {/* Error Display */}
+        {udpShareError && (
+          <div className="text-sm text-red-600 p-2 bg-red-50 rounded border border-red-200">{udpShareError}</div>
+        )}
 
+        {/* Available Targets Info */}
         {udpShareTargets.length > 0 && (
           <div className="text-sm text-muted-foreground">
-            Latest targets received: {udpShareTargets.map((t) => t.target_id).join(", ")}
+            <span className="font-medium">Latest targets received: </span>
+            {udpShareTargets.map((t) => t.target_id).join(", ")}
           </div>
         )}
 
         {/* Active UDP Shares */}
         {udpShareActive.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Active UDP Shares ({udpShareActive.length})</Label>
-            <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Active UDP Shares</Label>
+              <Badge variant="secondary">{udpShareActive.length}</Badge>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
               {udpShareActive.map((share) => (
                 <div key={share.shareId} className="flex items-center justify-between p-2 bg-muted rounded">
-                  <div className="text-sm">
-                    <span className="font-mono">{share.shareId}</span>
-                    <span className="text-muted-foreground ml-2">
-                      Target {share.targetId} → {share.destId} ({share.interval}ms)
-                    </span>
+                  <div className="text-sm flex-1 min-w-0">
+                    <div className="font-mono text-xs truncate" title={share.shareId}>
+                      {share.shareId}
+                    </div>
+                    <div
+                      className="text-muted-foreground text-xs truncate"
+                      title={`Target ${share.targetId} → ${share.destId} (${share.interval}ms)`}
+                    >
+                      Target {share.targetId} → {truncateText(share.destId, 15)} ({share.interval}ms)
+                    </div>
                   </div>
                   <Button size="sm" variant="destructive" onClick={() => onStopUdpShare(share.shareId, share.destId)}>
                     Stop
@@ -197,6 +280,7 @@ export function UdpTargetSharing({
           </div>
         )}
 
+        {/* Empty State */}
         {udpShareActive.length === 0 && (
           <div className="text-xs text-muted-foreground">
             No active UDP shares. Start sharing targets from UDP connections to other connections.
