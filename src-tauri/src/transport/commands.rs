@@ -8,7 +8,6 @@ use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
-use crate::transport::udp::UDP_TARGET_DATA;
 use crate::transport::{ConnectionInfo, StatableTransport};
 
 use prost::Message;
@@ -359,27 +358,39 @@ pub async fn list_active_simulation_streams(
 
 #[tauri::command]
 pub async fn list_udp_targets(
+    state: State<'_, Manager>,
     connection_id: String,
 ) -> Result<Vec<crate::packet::TargetPacket>, String> {
-    let udp_map = UDP_TARGET_DATA.lock().await;
-    if let Some(targets) = udp_map.get(&connection_id) {
-        Ok(targets.values().cloned().collect())
+    let connections = &state.connections;
+    let conn = {
+        let guard = connections.read().unwrap();
+        guard.get(&connection_id).cloned()
+    };
+    if let Some(conn) = conn {
+        if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
+            let td = udp.target_data.lock().await;
+            Ok(td.values().cloned().collect())
+        } else {
+            Ok(vec![])
+        }
     } else {
         Ok(vec![])
     }
 }
 
 #[tauri::command]
-pub async fn get_total_udp_targets() -> Result<u32, String> {
-    let udp_map = UDP_TARGET_DATA.lock().await;
+pub async fn get_total_udp_targets(state: State<'_, Manager>) -> Result<u32, String> {
+    let connections = &state.connections;
+    let conns: Vec<_> = connections.read().unwrap().values().cloned().collect();
     let mut all_target_ids = std::collections::HashSet::new();
-
-    for (_, targets) in udp_map.iter() {
-        for target_id in targets.keys() {
-            all_target_ids.insert(*target_id);
+    for conn in conns {
+        if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
+            let td = udp.target_data.lock().await;
+            for target_id in td.keys() {
+                all_target_ids.insert(*target_id);
+            }
         }
     }
-
     Ok(all_target_ids.len() as u32)
 }
 
@@ -402,20 +413,27 @@ pub async fn share_udp_target_to_connection(
     let dest_conn_id = dest_connection_id.clone();
     let handle = tokio::spawn(async move {
         loop {
-            let udp_map = UDP_TARGET_DATA.lock().await;
-            if let Some(targets) = udp_map.get(&udp_conn_id) {
-                if let Some(tp) = targets.get(&target_id) {
-                    let mut buf = Vec::new();
-                    let data = Packet {
-                        kind: Some(Kind::TargetPacket(tp.clone())),
-                    };
-                    if let Ok(()) = data.encode(&mut buf) {
-                        let _ = manager_arc.send_to(&dest_conn_id, buf).await;
+            let connections = manager_arc.connections.read().unwrap().clone();
+            if let Some(conn) = connections.get(&udp_conn_id) {
+                if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
+                    let td = udp.target_data.lock().await;
+                    if let Some(tp) = td.get(&target_id) {
+                        let mut buf = Vec::new();
+                        let data = Packet {
+                            kind: Some(Kind::TargetPacket(tp.clone())),
+                        };
+                        if let Ok(()) = data.encode(&mut buf) {
+                            let _ = manager_arc.send_to(&dest_conn_id, buf).await;
+                        }
                     }
+                    drop(td);
+                    tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
+                    continue;
                 }
             }
-            drop(udp_map);
-            time::sleep(time::Duration::from_millis(interval_ms)).await;
+            drop(connections);
+            // If not found or not UDP, sleep to avoid busy loop
+            tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
         }
     });
     let mut share_tasks = state.share_tasks.lock().await;

@@ -9,11 +9,12 @@ use tokio::sync::Mutex;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{error, info as trace_info};
+use prost::bytes::BytesMut;
+use prost::bytes::Buf;
+use tokio::sync::Notify;
 
 use crate::storage::file_logger::log_sent_data;
 use crate::transport::{StatableTransport, Transport};
-pub static LAST_DATA: Lazy<TokioMutex<HashMap<String, Vec<u8>>>> =
-    Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[derive(Clone)]
 pub struct SerialTransport {
@@ -21,6 +22,8 @@ pub struct SerialTransport {
     pub baud_rate: u32,
     pub writer: Arc<Mutex<Option<WriteHalf<SerialStream>>>>,
     reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pub last_data: Arc<Mutex<Option<Vec<u8>>>>, // Per-connection last data
+    pub notify: Arc<Notify>, // Notifies when new data is available
 }
 
 impl SerialTransport {
@@ -30,6 +33,8 @@ impl SerialTransport {
             baud_rate,
             writer: Arc::new(Mutex::new(None)),
             reader_task: Arc::new(Mutex::new(None)),
+            last_data: Arc::new(Mutex::new(None)),
+            notify: Arc::new(Notify::new()),
         }
     }
     pub fn list_ports() -> Result<Vec<String>, String> {
@@ -83,17 +88,19 @@ impl StatableTransport for SerialTransport {
 
         let reader = Arc::new(Mutex::new(Some(reader)));
         *self.writer.lock().await = Some(writer);
-
+        let last_data = self.last_data.clone();
         let reader_id = id.clone();
+        let notify = self.notify.clone();
 
         let task = tokio::spawn(async move {
-            let mut buffer = Vec::new();
+            let mut buffer = BytesMut::with_capacity(4096);
             const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB max buffer size
 
             trace_info!("[{}] Starting serial reader task", reader_id);
 
             loop {
-                let mut buf = vec![0u8; 1024];
+                let mut buf = BytesMut::with_capacity(1024);
+                buf.resize(1024, 0);
                 match reader.lock().await.as_mut().unwrap().read(&mut buf).await {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);
@@ -139,11 +146,9 @@ impl StatableTransport for SerialTransport {
                                         on_packet(reader_id.clone(), packet);
 
                                         // Store the latest raw data for sharing
-                                        let mut last_data = LAST_DATA.lock().await;
-                                        last_data.insert(
-                                            reader_id.clone(),
-                                            remaining_data[..packet_size].to_vec(),
-                                        );
+                                        let mut ld = last_data.lock().await;
+                                        *ld = Some(remaining_data[..packet_size].to_vec());
+                                        notify.notify_waiters();
 
                                         processed_bytes += packet_size;
 
@@ -193,12 +198,9 @@ impl StatableTransport for SerialTransport {
                                                 on_packet(reader_id.clone(), packet);
 
                                                 // Store the latest raw data for sharing
-                                                let mut last_data = LAST_DATA.lock().await;
-                                                last_data.insert(
-                                                    reader_id.clone(),
-                                                    remaining_data[offset..offset + packet_size]
-                                                        .to_vec(),
-                                                );
+                                                let mut ld = last_data.lock().await;
+                                                *ld = Some(remaining_data[offset..offset + packet_size].to_vec());
+                                                notify.notify_waiters();
 
                                                 processed_bytes += offset + packet_size;
                                                 found_packet = true;
@@ -227,7 +229,7 @@ impl StatableTransport for SerialTransport {
 
                         // Remove processed bytes from buffer
                         if processed_bytes > 0 {
-                            buffer.drain(0..processed_bytes);
+                            buffer.advance(processed_bytes);
                             trace_info!(
                                 "[{}] Processed {} bytes, remaining buffer: {}",
                                 reader_id,

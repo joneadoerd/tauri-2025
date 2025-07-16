@@ -8,11 +8,10 @@ use once_cell::sync::Lazy;
 use tokio::sync::Mutex as TokioMutex;
 use std::collections::HashMap;
 use crate::packet::{Packet, packet::Kind, TargetPacket, TargetPacketList};
+use prost::bytes::BytesMut;
+use tokio::sync::Notify;
 
-use crate::transport::{serial::LAST_DATA, StatableTransport, Transport};
-
-// Store latest TargetPacket for each target_id, per UDP connection
-pub static UDP_TARGET_DATA: Lazy<TokioMutex<HashMap<String, HashMap<u32, TargetPacket>>>> = Lazy::new(|| TokioMutex::new(HashMap::new()));
+use crate::transport::{ StatableTransport, Transport};
 
 #[derive(Clone)]
 pub struct UdpTransport {
@@ -21,6 +20,8 @@ pub struct UdpTransport {
     pub socket: Arc<UdpSocket>,
     pub running: Arc<Mutex<bool>>,
     pub cancel_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    pub target_data: Arc<Mutex<HashMap<u32, TargetPacket>>>, // Per-connection target data
+    pub notify: Arc<Notify>, // Notifies when new target data is available
 }
 
 impl UdpTransport {
@@ -34,6 +35,8 @@ impl UdpTransport {
             socket: Arc::new(socket),
             running: Arc::new(Mutex::new(false)),
             cancel_tx: Arc::new(Mutex::new(None)),
+            target_data: Arc::new(Mutex::new(HashMap::new())),
+            notify: Arc::new(Notify::new()),
         })
     }
 }
@@ -82,13 +85,16 @@ impl StatableTransport for UdpTransport {
     ) -> Result<(), String> {
         let socket = self.socket.clone();
         let running = self.running.clone();
+        let target_data = self.target_data.clone();
+        let notify = self.notify.clone();
         *running.lock().await = true;
         let local_addr = self.local_addr;
         let id_clone = id.clone();
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
         *self.cancel_tx.lock().await = Some(cancel_tx);
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 2048];
+            let mut buf = BytesMut::with_capacity(65535);
+            buf.resize(65535, 0);
             loop {
                 tokio::select! {
                     biased;
@@ -99,36 +105,38 @@ impl StatableTransport for UdpTransport {
                     res = socket.recv_from(&mut buf) => {
                         match res {
                             Ok((n, addr)) => {
+                                buf.truncate(n);
                                 println!("[udp] Received {} bytes from {}", n, addr);
-                                // Save last received data
-                                let mut last_data = LAST_DATA.lock().await;
-                                last_data.insert(id_clone.clone(), buf[..n].to_vec());
-                                drop(last_data);
                                 // Try to decode as Packet (for TargetPacket/TargetPacketList)
-                                if let Ok(packet) = Packet::decode(&buf[..n]) {
-                                    // If it's a TargetPacket or TargetPacketList, update UDP_TARGET_DATA
-                                    let mut udp_map = UDP_TARGET_DATA.lock().await;
-                                    let entry = udp_map.entry(id_clone.clone()).or_default();
+                                if let Ok(packet) = Packet::decode(&buf[..]) {
+                                    // If it's a TargetPacket or TargetPacketList, update per-connection target_data
+                                    let mut td = target_data.lock().await;
                                     match &packet.kind {
                                         Some(Kind::TargetPacket(tp)) => {
-                                            entry.insert(tp.target_id, tp.clone());
+                                            td.insert(tp.target_id, tp.clone());
+                                            notify.notify_waiters();
                                         },
                                         Some(Kind::TargetPacketList(tpl)) => {
                                             for tp in &tpl.packets {
-                                                entry.insert(tp.target_id, tp.clone());
+                                                td.insert(tp.target_id, tp.clone());
+                                                notify.notify_waiters();
                                             }
                                         },
                                         _ => {}
                                     }
                                 }
                                 // Also call the original on_packet for generic F
-                                if let Ok(packet) = F::decode(&buf[..n]) {
+                                if let Ok(packet) = F::decode(&buf[..]) {
                                     on_packet(id_clone.clone(), packet);
                                 }
+                                buf.clear();
+                                buf.resize(65535, 0); // Ensure buffer is always the right size
                             }
                             Err(e) => {
-                                println!("[udp] Error: {}", e);
-                                break;
+                                println!("[udp] Error: {}. Continuing...", e);
+                                buf.clear();
+                                buf.resize(65535, 0);
+                                continue; // Do not break, just continue
                             }
                         }
                     }
