@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { listen, Event, UnlistenFn } from "@tauri-apps/api/event"
-import { invoke } from "@tauri-apps/api/core"
 import type { Packet, SerialPacketEvent } from "@/gen/packet"
+import { getPacketStatistics, resetPacketCounters } from "@/app/actions/packet-statistics-actions"
 
 export interface PacketData {
   packet: Packet
@@ -56,22 +56,14 @@ export function usePacketData() {
   // Fetch packet statistics from backend
   const fetchPacketStatistics = useCallback(async () => {
     try {
-      const totalReceived = await invoke<number>("get_total_packets_received")
-      const totalSent = await invoke<number>("get_total_packets_sent")
-      const connectionCount = await invoke<number>("get_connection_count")
-      const connectionCounts = await invoke<Record<string, [number, number]>>("get_connection_packet_counts")
+      const stats = await getPacketStatistics()
 
       setStatistics(prev => ({
         ...prev,
-        totalPacketsReceived: totalReceived,
-        totalPacketsSent: totalSent,
-        connectionCount,
-        connectionPacketCounts: Object.fromEntries(
-          Object.entries(connectionCounts).map(([id, [received, sent]]) => [
-            id,
-            { received, sent }
-          ])
-        ),
+        totalPacketsReceived: stats.total_received,
+        totalPacketsSent: stats.total_sent,
+        connectionCount: stats.connection_count,
+        connectionPacketCounts: stats.connection_counts,
       }))
     } catch (error) {
       console.error("Failed to fetch packet statistics:", error)
@@ -251,6 +243,20 @@ export function usePacketData() {
     return () => clearInterval(interval)
   }, [fetchPacketStatistics])
 
+  // Reset all packet counters
+  const resetCounters = useCallback(async () => {
+    try {
+      await resetPacketCounters()
+      // Clear frontend data after reset
+      clearAllData()
+      // Refresh statistics
+      await fetchPacketStatistics()
+    } catch (error) {
+      console.error("Failed to reset packet counters:", error)
+      throw error
+    }
+  }, [clearAllData, fetchPacketStatistics])
+
   return {
     data,
     packetCounts,
@@ -259,5 +265,6 @@ export function usePacketData() {
     clearAllData,
     removeConnectionData,
     fetchPacketStatistics,
+    resetCounters,
   }
 }

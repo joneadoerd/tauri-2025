@@ -8,13 +8,13 @@ use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
-use crate::transport::{ConnectionInfo, StatableTransport, Transport};
+use crate::transport::{ConnectionInfo, StatableTransport};
 
 use prost::Message;
+use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, State};
 use tokio::time;
 use uuid::Uuid;
-use std::collections::HashMap;
 
 #[tauri::command]
 pub async fn start_connection(
@@ -119,12 +119,12 @@ pub async fn start_udp_connection(
     let addr: std::net::SocketAddr = local_addr
         .parse()
         .map_err(|e| format!("Invalid address: {}", e))?;
-    
+
     // Check if the socket address is already in use
     if state.is_socket_address_in_use(addr).await {
         return Err(format!("Socket address {} is already in use. Please stop any existing connections or simulation streaming using this address first.", local_addr));
     }
-    
+
     let mut transport = UdpTransport::new(addr)
         .await
         .map_err(|e| format!("Failed to create UDP transport: {}", e))?;
@@ -236,12 +236,12 @@ pub async fn share_target_to_udp_server(
     let remote_addr: SocketAddr = remote_addr
         .parse()
         .map_err(|e| format!("Invalid remote_addr: {}", e))?;
-    
+
     // Check if the socket address is already in use
     if state.is_socket_address_in_use(local_addr).await {
         return Err(format!("Socket address {} is already in use. Please stop any existing connections or simulation streaming using this address first.", local_addr));
     }
-    
+
     let sim_data_guard = sim_state.lock().await;
     let simulation_data = sim_data_guard
         .as_ref()
@@ -443,47 +443,53 @@ pub async fn share_udp_target_to_connection(
 }
 
 #[tauri::command]
-pub async fn get_udp_packet_received_count(
+pub async fn get_packet_statistics(
     state: State<'_, Manager>,
-    connection_id: String,
-) -> Result<usize, String> {
-    let connections = &state.connections;
-    let conn = {
-        let guard = connections.read().unwrap();
-        guard.get(&connection_id).cloned()
-    };
-    if let Some(conn) = conn {
-        if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
-            Ok(udp.get_packet_received_count())
-        } else {
-            Err("Connection is not a UDP transport".to_string())
-        }
-    } else {
-        Err("Connection not found".to_string())
-    }
+) -> Result<HashMap<String, serde_json::Value>, String> {
+    let total_received = state.get_total_packets_received().await;
+    let total_sent = state.get_total_packets_sent().await;
+    let connection_count = state.get_connection_count().await;
+    let connection_counts = state.get_connection_packet_counts().await;
+
+    let mut stats = HashMap::new();
+    stats.insert(
+        "total_received".to_string(),
+        serde_json::Value::Number(total_received.into()),
+    );
+    stats.insert(
+        "total_sent".to_string(),
+        serde_json::Value::Number(total_sent.into()),
+    );
+    stats.insert(
+        "connection_count".to_string(),
+        serde_json::Value::Number(connection_count.into()),
+    );
+
+    let connection_counts_json: HashMap<String, serde_json::Value> = connection_counts
+        .into_iter()
+        .map(|(id, (received, sent))| {
+            let mut conn_stats = HashMap::new();
+            conn_stats.insert(
+                "received".to_string(),
+                serde_json::Value::Number(received.into()),
+            );
+            conn_stats.insert("sent".to_string(), serde_json::Value::Number(sent.into()));
+            (
+                id,
+                serde_json::Value::Object(serde_json::Map::from_iter(conn_stats)),
+            )
+        })
+        .collect();
+
+    stats.insert(
+        "connection_counts".to_string(),
+        serde_json::Value::Object(serde_json::Map::from_iter(connection_counts_json)),
+    );
+
+    Ok(stats)
 }
 
-#[tauri::command]
-pub async fn get_serial_packet_received_count(
-    state: State<'_, Manager>,
-    connection_id: String,
-) -> Result<usize, String> {
-    let connections = &state.connections;
-    let conn = {
-        let guard = connections.read().unwrap();
-        guard.get(&connection_id).cloned()
-    };
-    if let Some(conn) = conn {
-        if let Some(serial) = conn.as_any().downcast_ref::<SerialTransport>() {
-            Ok(serial.get_packet_received_count())
-        } else {
-            Err("Connection is not a serial transport".to_string())
-        }
-    } else {
-        Err("Connection not found".to_string())
-    }
-}
-
+// Keep individual commands for backward compatibility
 #[tauri::command]
 pub async fn get_total_packets_sent(state: State<'_, Manager>) -> Result<usize, String> {
     Ok(state.get_total_packets_sent().await)
@@ -495,7 +501,9 @@ pub async fn get_total_packets_received(state: State<'_, Manager>) -> Result<usi
 }
 
 #[tauri::command]
-pub async fn get_connection_packet_counts(state: State<'_, Manager>) -> Result<HashMap<String, (usize, usize)>, String> {
+pub async fn get_connection_packet_counts(
+    state: State<'_, Manager>,
+) -> Result<HashMap<String, (usize, usize)>, String> {
     Ok(state.get_connection_packet_counts().await)
 }
 
@@ -504,3 +512,8 @@ pub async fn get_connection_count(state: State<'_, Manager>) -> Result<usize, St
     Ok(state.get_connection_count().await)
 }
 
+#[tauri::command]
+pub async fn reset_packet_counters(state: State<'_, Manager>) -> Result<(), String> {
+    state.reset_packet_counters().await;
+    Ok(())
+}

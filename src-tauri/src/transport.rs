@@ -3,10 +3,9 @@
 pub mod commands;
 pub mod connection_manager;
 pub mod serial;
-pub mod streamer;
 pub mod udp;
-use std::sync::Arc;
 use std::any::Any;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use prost::Message;
@@ -25,20 +24,26 @@ pub trait Transport: Send + Sync {
     fn name(&self) -> String;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    
+
     /// Get the total number of packets received by this transport
     fn get_packet_received_count(&self) -> usize {
         0 // Default implementation, override in specific transports
     }
-    
+
     /// Get the total number of packets sent by this transport
     fn get_packet_sent_count(&self) -> usize {
         0 // Default implementation, override in specific transports
     }
 
+    /// Reset packet counters for this transport
+    fn reset_packet_counters(&self) {}
+
     /// Share data from a channel to this transport in an independent Tokio task
-    fn share_data_channel(self: Arc<Self>, rx: tokio::sync::mpsc::Receiver<Vec<u8>>, interval_ms: u64)
-    where
+    fn share_data_channel(
+        self: Arc<Self>,
+        rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        interval_ms: u64,
+    ) where
         Self: 'static,
     {
         let name = self.name();
@@ -48,8 +53,12 @@ pub trait Transport: Send + Sync {
     }
 
     /// Helper async task for sharing data
-    async fn share_data_task(self: Arc<Self>, mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>, interval_ms: u64, name: String)
-    where
+    async fn share_data_task(
+        self: Arc<Self>,
+        mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        interval_ms: u64,
+        name: String,
+    ) where
         Self: 'static,
     {
         while let Some(data) = rx.recv().await {
@@ -66,8 +75,4 @@ pub trait StatableTransport: Transport {
         id: String,
         on_packet: impl FnMut(String, F) + Send + 'static,
     ) -> Result<(), String>;
-    /// Generic function to update a field of the implementing struct
-    fn update_field<T>(&mut self, updater: impl FnOnce(&mut Self) -> T) -> T {
-        updater(self)
-    }
 }

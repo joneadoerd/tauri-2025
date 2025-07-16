@@ -34,7 +34,11 @@ export async function listConnections(): Promise<SerialConnectionInfo[]> {
   return invoke<SerialConnectionInfo[]>("list_connections");
 }
 
-export async function startShare(fromId: string, toId: string, intervalMs: number) {
+export async function startShare(
+  fromId: string,
+  toId: string,
+  intervalMs: number
+) {
   return invoke("start_serial_share", { fromId, toId, intervalMs });
 }
 

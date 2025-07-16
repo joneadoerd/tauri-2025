@@ -23,9 +23,11 @@ import { ActiveSharesTable } from "@/components/active-shares-table"
 import { LogFilesSection } from "@/components/log-files-section"
 import { DebugInfo } from "@/components/debug-info"
 import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions"
+import { invoke } from "@tauri-apps/api/core"
 
 export default function SerialTabGenerals() {
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [resetting, setResetting] = useState(false)
 
   // Custom hooks
   const { ports, connections, refreshing, refreshConnections, connect, disconnect, disconnectAll } =
@@ -38,6 +40,7 @@ export default function SerialTabGenerals() {
     clearData,
     clearAllData,
     removeConnectionData,
+    resetCounters,
   } = usePacketData()
 
   const { udpListeners, addUdpListener, removeUdpListener } = useUdpConnections()
@@ -107,6 +110,21 @@ export default function SerialTabGenerals() {
     clearAllData()
   }, [disconnectAll, clearAllData])
 
+  const handleResetCounters = useCallback(async () => {
+    setResetting(true)
+    try {
+      await resetCounters()
+      // Refresh connections to get updated backend state
+      setTimeout(() => {
+        refreshConnections()
+        setResetting(false)
+      }, 300)
+    } catch (error) {
+      setResetting(false)
+      console.error("Failed to reset counters:", error)
+    }
+  }, [refreshConnections, resetCounters])
+
   const totalPackets = Object.values(data).reduce((sum, packets) => sum + packets.length, 0)
 
   return (
@@ -141,7 +159,7 @@ export default function SerialTabGenerals() {
       />
 
       {/* Quick Actions */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2 mb-4">
         <Button
           onClick={handleDisconnectAll}
           variant="destructive"
@@ -155,6 +173,14 @@ export default function SerialTabGenerals() {
           className={hasAnyActiveShares() ? "opacity-50 cursor-not-allowed" : ""}
         >
           Disconnect All
+        </Button>
+        <Button
+          onClick={handleResetCounters}
+          variant="outline"
+          size="sm"
+          disabled={resetting}
+        >
+          {resetting ? "Resetting..." : "Reset Counters"}
         </Button>
         {hasAnyActiveShares() && (
           <Badge variant="secondary" className="text-xs">

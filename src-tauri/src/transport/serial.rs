@@ -1,14 +1,14 @@
 use async_trait::async_trait;
+use prost::bytes::Buf;
+use prost::bytes::BytesMut;
 use prost::Message;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
+use tokio::sync::Notify;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{error, info as trace_info};
-use prost::bytes::BytesMut;
-use prost::bytes::Buf;
-use tokio::sync::Notify;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::storage::file_logger::log_sent_data;
 use crate::transport::{StatableTransport, Transport};
@@ -20,7 +20,7 @@ pub struct SerialTransport {
     pub writer: Arc<Mutex<Option<WriteHalf<SerialStream>>>>,
     reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub last_data: Arc<Mutex<Option<Vec<u8>>>>, // Per-connection last data
-    pub notify: Arc<Notify>, // Notifies when new data is available
+    pub notify: Arc<Notify>,                    // Notifies when new data is available
     pub packet_received_count: Arc<AtomicUsize>,
     pub packet_sent_count: Arc<AtomicUsize>, // Add packet sent counter
 }
@@ -38,18 +38,11 @@ impl SerialTransport {
             packet_sent_count: Arc::new(AtomicUsize::new(0)),
         }
     }
-    
+
     pub fn list_ports() -> Result<Vec<String>, String> {
         serialport::available_ports()
             .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
             .map_err(|e| e.to_string())
-    }
-    pub fn get_packet_received_count(&self) -> usize {
-        self.packet_received_count.load(Ordering::Relaxed)
-    }
-    
-    pub fn get_packet_sent_count(&self) -> usize {
-        self.packet_sent_count.load(Ordering::Relaxed)
     }
 }
 
@@ -83,13 +76,18 @@ impl Transport for SerialTransport {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
-    
+
     fn get_packet_received_count(&self) -> usize {
         self.packet_received_count.load(Ordering::Relaxed)
     }
-    
+
     fn get_packet_sent_count(&self) -> usize {
         self.packet_sent_count.load(Ordering::Relaxed)
+    }
+
+    fn reset_packet_counters(&self) {
+        self.packet_received_count.store(0, Ordering::Relaxed);
+        self.packet_sent_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -123,7 +121,6 @@ impl StatableTransport for SerialTransport {
                 buf.resize(1024, 0);
                 match reader.lock().await.as_mut().unwrap().read(&mut buf).await {
                     Ok(n) if n > 0 => {
-                        packet_received_count.fetch_add(1, Ordering::Relaxed);
                         buf.truncate(n);
                         buffer.extend_from_slice(&buf);
 
@@ -163,6 +160,9 @@ impl StatableTransport for SerialTransport {
                                                 "serialization failed".to_string()
                                             })
                                         );
+
+                                        // Increment packet counter only for successful decodes
+                                        packet_received_count.fetch_add(1, Ordering::Relaxed);
 
                                         on_packet(reader_id.clone(), packet);
 
@@ -216,11 +216,18 @@ impl StatableTransport for SerialTransport {
                                                     packet_size
                                                 );
 
+                                                // Increment packet counter for successful decodes
+                                                packet_received_count
+                                                    .fetch_add(1, Ordering::Relaxed);
+
                                                 on_packet(reader_id.clone(), packet);
 
                                                 // Store the latest raw data for sharing
                                                 let mut ld = last_data.lock().await;
-                                                *ld = Some(remaining_data[offset..offset + packet_size].to_vec());
+                                                *ld = Some(
+                                                    remaining_data[offset..offset + packet_size]
+                                                        .to_vec(),
+                                                );
                                                 notify.notify_waiters();
 
                                                 processed_bytes += offset + packet_size;

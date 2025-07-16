@@ -3,16 +3,15 @@ use prost::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, oneshot};
-use once_cell::sync::Lazy;
-use tokio::sync::Mutex as TokioMutex;
-use std::collections::HashMap;
-use crate::packet::{Packet, packet::Kind, TargetPacket, TargetPacketList};
-use prost::bytes::BytesMut;
-use tokio::sync::Notify;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::{oneshot, Mutex};
 
-use crate::transport::{ StatableTransport, Transport};
+use crate::packet::{packet::Kind, Packet, TargetPacket};
+use prost::bytes::BytesMut;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::Notify;
+
+use crate::transport::{StatableTransport, Transport};
 
 #[derive(Clone)]
 pub struct UdpTransport {
@@ -82,13 +81,18 @@ impl Transport for UdpTransport {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
-    
+
     fn get_packet_received_count(&self) -> usize {
         self.packet_received_count.load(Ordering::Relaxed)
     }
-    
+
     fn get_packet_sent_count(&self) -> usize {
         self.packet_sent_count.load(Ordering::Relaxed)
+    }
+
+    fn reset_packet_counters(&self) {
+        self.packet_received_count.store(0, Ordering::Relaxed);
+        self.packet_sent_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -102,6 +106,7 @@ impl StatableTransport for UdpTransport {
         let running = self.running.clone();
         let target_data = self.target_data.clone();
         let notify = self.notify.clone();
+        let packet_received_count = self.packet_received_count.clone();
         *running.lock().await = true;
         let local_addr = self.local_addr;
         let id_clone = id.clone();
@@ -143,6 +148,12 @@ impl StatableTransport for UdpTransport {
                                 // Also call the original on_packet for generic F
                                 if let Ok(packet) = F::decode(&buf[..]) {
                                     on_packet(id_clone.clone(), packet);
+                                }
+
+                                // Increment packet counter for successful receives
+                                // Note: We increment for any successful decode, whether Packet or F
+                                if Packet::decode(&buf[..]).is_ok() || F::decode(&buf[..]).is_ok() {
+                                    packet_received_count.fetch_add(1, Ordering::Relaxed);
                                 }
                                 buf.clear();
                                 buf.resize(65535, 0); // Ensure buffer is always the right size

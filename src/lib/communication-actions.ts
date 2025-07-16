@@ -7,6 +7,18 @@ import type {
   SimulationUdpParams,
   SimulationResultList,
 } from "@/types"
+import type { Packet } from "@/gen/packet"
+
+export interface PacketStatistics {
+  total_received: number
+  total_sent: number
+  connection_count: number
+  connection_counts: Record<string, { received: number; sent: number }>
+}
+
+export interface ConnectionPacketCounts {
+  [connectionId: string]: { received: number; sent: number }
+}
 
 /**
  * Lists all available serial ports
@@ -257,17 +269,126 @@ export async function startSimulationUdpStreaming(params: SimulationUdpParams): 
   }
 }
 
-/**
- * Stops simulation UDP streaming
- * @param connectionId - Connection ID to stop
- */
-export async function stopSimulationUdpStreaming(connectionId: string): Promise<void> {
-  try {
-    await invoke("stop_simulation_udp_streaming", {
-      connectionId: connectionId,
-    })
-  } catch (error) {
-    console.error("Failed to stop simulation UDP streaming:", error)
-    throw new Error(`Failed to stop simulation UDP streaming: ${error}`)
+  /**
+   * Stops simulation UDP streaming
+   * @param connectionId - Connection ID to stop
+   */
+  export async function stopSimulationUdpStreaming(connectionId: string): Promise<void> {
+    try {
+      await invoke("stop_simulation_udp_streaming", {
+        connectionId: connectionId,
+      })
+    } catch (error) {
+      console.error("Failed to stop simulation UDP streaming:", error)
+      throw new Error(`Failed to stop simulation UDP streaming: ${error}`)
+    }
   }
-}
+
+  // ============================================================================
+  // PACKET STATISTICS OPERATIONS
+  // ============================================================================
+
+  /**
+   * Get comprehensive packet statistics from backend
+   * This replaces multiple individual calls with a single consolidated call
+   */
+  export async function getPacketStatistics(): Promise<PacketStatistics> {
+    try {
+      const stats = await invoke<Record<string, any>>("get_packet_statistics")
+      
+      // Parse the connection counts from the JSON structure
+      const connection_counts: ConnectionPacketCounts = {}
+      if (stats.connection_counts && typeof stats.connection_counts === 'object') {
+        Object.entries(stats.connection_counts).forEach(([id, data]) => {
+          if (data && typeof data === 'object' && 'received' in data && 'sent' in data) {
+            connection_counts[id] = {
+              received: Number(data.received) || 0,
+              sent: Number(data.sent) || 0
+            }
+          }
+        })
+      }
+
+      return {
+        total_received: Number(stats.total_received) || 0,
+        total_sent: Number(stats.total_sent) || 0,
+        connection_count: Number(stats.connection_count) || 0,
+        connection_counts
+      }
+    } catch (error) {
+      console.error("Failed to get packet statistics:", error)
+      return {
+        total_received: 0,
+        total_sent: 0,
+        connection_count: 0,
+        connection_counts: {}
+      }
+    }
+  }
+
+  /**
+   * Reset all packet counters
+   */
+  export async function resetPacketCounters(): Promise<void> {
+    try {
+      await invoke("reset_packet_counters")
+    } catch (error) {
+      console.error("Failed to reset packet counters:", error)
+      throw new Error(`Failed to reset packet counters: ${error}`)
+    }
+  }
+
+  /**
+   * Get total packets received (legacy function for backward compatibility)
+   */
+  export async function getTotalPacketsReceived(): Promise<number> {
+    try {
+      return await invoke<number>("get_total_packets_received")
+    } catch (error) {
+      console.error("Failed to get total packets received:", error)
+      return 0
+    }
+  }
+
+  /**
+   * Get total packets sent (legacy function for backward compatibility)
+   */
+  export async function getTotalPacketsSent(): Promise<number> {
+    try {
+      return await invoke<number>("get_total_packets_sent")
+    } catch (error) {
+      console.error("Failed to get total packets sent:", error)
+      return 0
+    }
+  }
+
+  /**
+   * Get connection packet counts (legacy function for backward compatibility)
+   */
+  export async function getConnectionPacketCounts(): Promise<ConnectionPacketCounts> {
+    try {
+      const counts = await invoke<Record<string, [number, number]>>("get_connection_packet_counts")
+      const result: ConnectionPacketCounts = {}
+      
+      Object.entries(counts).forEach(([id, [received, sent]]) => {
+        result[id] = { received, sent }
+      })
+      
+      return result
+    } catch (error) {
+      console.error("Failed to get connection packet counts:", error)
+      return {}
+    }
+  }
+
+  /**
+   * Get connection count (legacy function for backward compatibility)
+   */
+  export async function getConnectionCount(): Promise<number> {
+    try {
+      return await invoke<number>("get_connection_count")
+    } catch (error) {
+      console.error("Failed to get connection count:", error)
+      return 0
+    }
+  }

@@ -1,14 +1,16 @@
+use crate::transport::{ConnectionInfo, Transport};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
-use crate::transport::{ConnectionInfo, Transport};
 
 #[derive(Default, Clone)]
 pub struct Manager {
     pub connections: Arc<RwLock<HashMap<String, Arc<dyn Transport + Send + Sync>>>>,
-    pub active_shares: Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::sync::mpsc::Sender<Vec<u8>>>>>,
-    pub share_tasks: Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::task::JoinHandle<()>>>>,
-    pub simulation_stream_tasks: Arc<tokio::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    pub active_shares:
+        Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::sync::mpsc::Sender<Vec<u8>>>>>,
+    pub share_tasks:
+        Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::task::JoinHandle<()>>>>,
+    pub simulation_stream_tasks:
+        Arc<tokio::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl Manager {
@@ -20,31 +22,54 @@ impl Manager {
             simulation_stream_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
-    
+
     /// Get total packets received across all connections
     pub async fn get_total_packets_received(&self) -> usize {
         let guard = self.connections.read().unwrap();
-        guard.values().map(|transport| transport.get_packet_received_count()).sum()
+        guard
+            .values()
+            .map(|transport| transport.get_packet_received_count())
+            .sum()
     }
-    
+
     /// Get total packets sent across all connections
     pub async fn get_total_packets_sent(&self) -> usize {
         let guard = self.connections.read().unwrap();
-        guard.values().map(|transport| transport.get_packet_sent_count()).sum()
+        guard
+            .values()
+            .map(|transport| transport.get_packet_sent_count())
+            .sum()
     }
-    
+
     /// Get packet counts for each connection
     pub async fn get_connection_packet_counts(&self) -> HashMap<String, (usize, usize)> {
         let guard = self.connections.read().unwrap();
-        guard.iter().map(|(id, transport)| {
-            (id.clone(), (transport.get_packet_received_count(), transport.get_packet_sent_count()))
-        }).collect()
+        guard
+            .iter()
+            .map(|(id, transport)| {
+                (
+                    id.clone(),
+                    (
+                        transport.get_packet_received_count(),
+                        transport.get_packet_sent_count(),
+                    ),
+                )
+            })
+            .collect()
     }
-    
+
     /// Get total number of active connections
     pub async fn get_connection_count(&self) -> usize {
         let guard = self.connections.read().unwrap();
         guard.len()
+    }
+
+    /// Reset all packet counters
+    pub async fn reset_packet_counters(&self) {
+        let guard = self.connections.read().unwrap();
+        for transport in guard.values() {
+            transport.reset_packet_counters();
+        }
     }
     /// Share data from one connection to another by id, with interval
     pub async fn share_data_between_ids(
@@ -57,7 +82,8 @@ impl Manager {
         let to = {
             let guard = connections.read().unwrap();
             guard.get(to_id).cloned()
-        }.ok_or_else(|| format!("No transport found for ID: {}", to_id))?;
+        }
+        .ok_or_else(|| format!("No transport found for ID: {}", to_id))?;
         // Create channel and start sharing
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         to.share_data_channel(rx, interval_ms);
@@ -78,7 +104,10 @@ impl Manager {
                     guard.get(&from_id_for_task).cloned()
                 };
                 if let Some(conn) = conn {
-                    if let Some(serial) = conn.as_any().downcast_ref::<crate::transport::serial::SerialTransport>() {
+                    if let Some(serial) = conn
+                        .as_any()
+                        .downcast_ref::<crate::transport::serial::SerialTransport>()
+                    {
                         let ld = serial.last_data.lock().await;
                         if let Some(data) = &*ld {
                             let _ = tx_clone.send(data.clone()).await;
@@ -141,10 +170,8 @@ impl Manager {
             let transport = self.connections.write().unwrap().remove(id);
             if let Some(transport) = transport {
                 // Add timeout to prevent hanging
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(3),
-                    transport.stop()
-                ).await;
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(3), transport.stop()).await;
             }
         }
         // Abort and remove all share tasks
@@ -163,7 +190,10 @@ impl Manager {
         let transport = self.connections.write().unwrap().remove(id);
         if let Some(transport) = transport {
             // Check if this is a UDP connection and stop any simulation streaming using the same address
-            if let Some(udp_transport) = transport.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+            if let Some(udp_transport) = transport
+                .as_any()
+                .downcast_ref::<crate::transport::udp::UdpTransport>()
+            {
                 let local_addr = udp_transport.local_addr;
                 let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
                 let sim_keys: Vec<_> = simulation_stream_tasks.keys().cloned().collect();
@@ -174,19 +204,24 @@ impl Manager {
                         guard.get(&sim_id).cloned()
                     };
                     if let Some(sim_conn) = sim_conn {
-                        if let Some(sim_udp) = sim_conn.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+                        if let Some(sim_udp) = sim_conn
+                            .as_any()
+                            .downcast_ref::<crate::transport::udp::UdpTransport>()
+                        {
                             if sim_udp.local_addr == local_addr {
                                 // Found a simulation streaming task using the same socket address
                                 if let Some(handle) = simulation_stream_tasks.remove(&sim_id) {
                                     handle.abort();
                                 }
                                 // Also stop and remove the connection with timeout
-                                let sim_transport = self.connections.write().unwrap().remove(&sim_id);
+                                let sim_transport =
+                                    self.connections.write().unwrap().remove(&sim_id);
                                 if let Some(sim_transport) = sim_transport {
                                     let _ = tokio::time::timeout(
                                         std::time::Duration::from_secs(3),
-                                        sim_transport.stop()
-                                    ).await;
+                                        sim_transport.stop(),
+                                    )
+                                    .await;
                                 }
                             }
                         }
@@ -194,10 +229,7 @@ impl Manager {
                 }
             }
             // Now stop the original connection with timeout
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                transport.stop()
-            ).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), transport.stop()).await;
             // Abort and remove all share tasks for this connection
             let mut share_tasks = self.share_tasks.lock().await;
             let keys: Vec<_> = share_tasks.keys().cloned().collect();
@@ -217,21 +249,29 @@ impl Manager {
     }
 
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
-        self.connections.read().unwrap().iter().map(|(id, transport)| {
-            ConnectionInfo {
+        self.connections
+            .read()
+            .unwrap()
+            .iter()
+            .map(|(id, transport)| ConnectionInfo {
                 id: id.clone(),
                 name: transport.name(),
-            }
-        }).collect()
+            })
+            .collect()
     }
 
-    pub async fn set_udp_remote_addr(&self, id: &str, remote_addr: std::net::SocketAddr) -> Result<(), String> {
+    pub async fn set_udp_remote_addr(
+        &self,
+        id: &str,
+        remote_addr: std::net::SocketAddr,
+    ) -> Result<(), String> {
         let mut guard = self.connections.write().unwrap();
         if let Some(conn) = guard.get_mut(id) {
             // Downcast the Arc<dyn Transport> to UdpTransport
-            if let Some(udp) = Arc::get_mut(&mut *conn)
-                .and_then(|t| t.as_any_mut().downcast_mut::<crate::transport::udp::UdpTransport>())
-            {
+            if let Some(udp) = Arc::get_mut(&mut *conn).and_then(|t| {
+                t.as_any_mut()
+                    .downcast_mut::<crate::transport::udp::UdpTransport>()
+            }) {
                 udp.remote_addr = Some(remote_addr);
                 Ok(())
             } else {
@@ -245,7 +285,10 @@ impl Manager {
     /// Check if a socket address is already in use by any connection
     pub async fn is_socket_address_in_use(&self, addr: std::net::SocketAddr) -> bool {
         for (_, transport) in self.connections.read().unwrap().iter() {
-            if let Some(udp) = transport.as_any().downcast_ref::<crate::transport::udp::UdpTransport>() {
+            if let Some(udp) = transport
+                .as_any()
+                .downcast_ref::<crate::transport::udp::UdpTransport>()
+            {
                 if udp.local_addr == addr {
                     return true;
                 }
@@ -262,8 +305,8 @@ impl Manager {
         interval_ms: u64,
         packets: Vec<crate::packet::TargetPacket>,
     ) -> Result<String, String> {
+        use crate::packet::{packet::Kind, Packet, TargetPacket, TargetPacketList};
         use crate::transport::udp::UdpTransport;
-        use crate::packet::{Packet, packet::Kind, TargetPacket, TargetPacketList};
         use prost::Message;
         use std::sync::Arc;
         use tokio::time;
@@ -276,7 +319,8 @@ impl Manager {
         self.add_connection(id.clone(), transport.clone()).await?;
 
         // Group packets by target_id and align by time step
-        let mut target_map: std::collections::HashMap<u32, Vec<TargetPacket>> = std::collections::HashMap::new();
+        let mut target_map: std::collections::HashMap<u32, Vec<TargetPacket>> =
+            std::collections::HashMap::new();
         for packet in packets {
             target_map.entry(packet.target_id).or_default().push(packet);
         }
@@ -297,7 +341,9 @@ impl Manager {
                 if !step_packets.is_empty() {
                     let mut buf = Vec::new();
                     let data = Packet {
-                        kind: Some(Kind::TargetPacketList(TargetPacketList { packets: step_packets })),
+                        kind: Some(Kind::TargetPacketList(TargetPacketList {
+                            packets: step_packets,
+                        })),
                     };
                     if let Ok(()) = data.encode(&mut buf) {
                         let _ = transport.send(buf).await;
@@ -314,7 +360,7 @@ impl Manager {
     /// Stop simulation UDP streaming by aborting the spawned task and stopping the connection
     pub async fn stop_simulation_udp_streaming(&self, id: &str) -> Result<(), String> {
         println!("[manager] Stopping simulation UDP streaming for {}", id);
-        
+
         // First, abort the simulation task immediately
         {
             let mut simulation_stream_tasks = self.simulation_stream_tasks.lock().await;
@@ -323,16 +369,16 @@ impl Manager {
                 handle.abort();
             }
         }
-        
+
         // Use a simpler, more direct approach to avoid hanging
         {
             let connections = self.connections.clone();
-            if let Some(transport) = connections.write().unwrap().remove(id) {
+            if let Some(_transport) = connections.write().unwrap().remove(id) {
                 println!("[manager] Removing connection {} from map", id);
                 // Don't call transport.stop() as it might hang, just drop it
             };
         }
-        
+
         // Also clean up any share tasks for this connection
         {
             let mut share_tasks = self.share_tasks.lock().await;
@@ -346,8 +392,11 @@ impl Manager {
                 }
             }
         }
-        
-        println!("[manager] Successfully stopped simulation UDP streaming for {}", id);
+
+        println!(
+            "[manager] Successfully stopped simulation UDP streaming for {}",
+            id
+        );
         Ok(())
     }
 }
