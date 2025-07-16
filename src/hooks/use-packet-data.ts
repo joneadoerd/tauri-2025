@@ -1,14 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { listen, type UnlistenFn, type Event } from "@tauri-apps/api/event"
+import { listen, Event, UnlistenFn } from "@tauri-apps/api/event"
+import { invoke } from "@tauri-apps/api/core"
 import type { Packet, SerialPacketEvent } from "@/gen/packet"
 
 export interface PacketData {
   packet: Packet
   timestamp: number
-  id?: string
-  packetType?: string
+  id: string
+  packetType: string
 }
 
 export interface PacketCounts {
@@ -19,46 +20,65 @@ export interface PacketCounts {
   totalCount: number
 }
 
+export interface PacketStatistics {
+  totalPacketsReceived: number
+  totalPacketsSent: number
+  connectionCount: number
+  connectionPacketCounts: Record<string, { received: number; sent: number }>
+  globalPacketTypeCounts: Record<string, number>
+  connectionPacketTypeCounts: Record<string, Record<string, number>>
+}
+
 /**
- * Custom hook for managing real-time packet data processing
- *
- * Handles:
- * - Real-time packet event listening
- * - Packet type classification and counting
- * - Data storage with connection-based organization
- * - Packet deduplication
- * - Statistics tracking
- *
- * @returns Object containing packet data state and management functions
- *
- * @example
- * \`\`\`typescript
- * const {
- *   data,
- *   packetCounts,
- *   globalPacketTypeCounts,
- *   connectionPacketTypeCounts,
- *   clearData,
- *   clearAllData,
- *   removeConnectionData
- * } = usePacketData()
- *
- * // Clear data for specific connection
- * clearData("connection-id")
- *
- * // Clear all packet data
- * clearAllData()
- * \`\`\`
+ * Unified hook for managing packet data and statistics using event emission
+ * 
+ * This hook:
+ * - Listens to "serial_packet" events for real-time packet counting
+ * - Provides centralized packet statistics across all connections
+ * - Uses backend manager for packet counting instead of individual hooks
+ * - Supports both serial and UDP connections
+ * 
+ * @returns Object containing packet data, statistics, and management functions
  */
 export function usePacketData() {
   const [data, setData] = useState<Record<string, PacketData[]>>({})
   const [packetCounts, setPacketCounts] = useState<Record<string, PacketCounts>>({})
-  const [globalPacketTypeCounts, setGlobalPacketTypeCounts] = useState<Record<string, number>>({})
-  const [connectionPacketTypeCounts, setConnectionPacketTypeCounts] = useState<Record<string, Record<string, number>>>(
-    {},
-  )
+  const [statistics, setStatistics] = useState<PacketStatistics>({
+    totalPacketsReceived: 0,
+    totalPacketsSent: 0,
+    connectionCount: 0,
+    connectionPacketCounts: {},
+    globalPacketTypeCounts: {},
+    connectionPacketTypeCounts: {},
+  })
   const [processedPackets] = useState<Set<string>>(new Set())
 
+  // Fetch packet statistics from backend
+  const fetchPacketStatistics = useCallback(async () => {
+    try {
+      const totalReceived = await invoke<number>("get_total_packets_received")
+      const totalSent = await invoke<number>("get_total_packets_sent")
+      const connectionCount = await invoke<number>("get_connection_count")
+      const connectionCounts = await invoke<Record<string, [number, number]>>("get_connection_packet_counts")
+
+      setStatistics(prev => ({
+        ...prev,
+        totalPacketsReceived: totalReceived,
+        totalPacketsSent: totalSent,
+        connectionCount,
+        connectionPacketCounts: Object.fromEntries(
+          Object.entries(connectionCounts).map(([id, [received, sent]]) => [
+            id,
+            { received, sent }
+          ])
+        ),
+      }))
+    } catch (error) {
+      console.error("Failed to fetch packet statistics:", error)
+    }
+  }, [])
+
+  // Clear data for specific connection
   const clearData = useCallback((id: string) => {
     setData((prev) => {
       const updated = { ...prev }
@@ -82,22 +102,30 @@ export function usePacketData() {
       return updated
     })
 
-    setConnectionPacketTypeCounts((prev) => {
-      const updated = { ...prev }
-      if (updated[id]) {
-        updated[id] = {}
+    setStatistics(prev => ({
+      ...prev,
+      connectionPacketTypeCounts: {
+        ...prev.connectionPacketTypeCounts,
+        [id]: {},
       }
-      return updated
-    })
+    }))
   }, [])
 
+  // Clear all packet data
   const clearAllData = useCallback(() => {
     setData({})
     setPacketCounts({})
-    setConnectionPacketTypeCounts({})
-    setGlobalPacketTypeCounts({})
+    setStatistics({
+      totalPacketsReceived: 0,
+      totalPacketsSent: 0,
+      connectionCount: 0,
+      connectionPacketCounts: {},
+      globalPacketTypeCounts: {},
+      connectionPacketTypeCounts: {},
+    })
   }, [])
 
+  // Remove connection data
   const removeConnectionData = useCallback((id: string) => {
     setData((prev) => {
       const updated = { ...prev }
@@ -111,13 +139,15 @@ export function usePacketData() {
       return updated
     })
 
-    setConnectionPacketTypeCounts((prev) => {
+    setStatistics(prev => {
       const updated = { ...prev }
-      delete updated[id]
+      delete updated.connectionPacketTypeCounts[id]
+      delete updated.connectionPacketCounts[id]
       return updated
     })
   }, [])
 
+  // Listen to serial_packet events for real-time updates
   useEffect(() => {
     const unlistenAll: UnlistenFn[] = []
 
@@ -144,9 +174,19 @@ export function usePacketData() {
       }
 
       // Update global packet type counter
-      setGlobalPacketTypeCounts((prev) => ({
+      setStatistics(prev => ({
         ...prev,
-        [packetType]: (prev[packetType] || 0) + 1,
+        globalPacketTypeCounts: {
+          ...prev.globalPacketTypeCounts,
+          [packetType]: (prev.globalPacketTypeCounts[packetType] || 0) + 1,
+        },
+        connectionPacketTypeCounts: {
+          ...prev.connectionPacketTypeCounts,
+          [id]: {
+            ...(prev.connectionPacketTypeCounts[id] || {}),
+            [packetType]: (prev.connectionPacketTypeCounts[id]?.[packetType] || 0) + 1,
+          },
+        },
       }))
 
       // Update packet data
@@ -198,35 +238,26 @@ export function usePacketData() {
           }
         }
       })
-
-      // Update per-connection packet type counter
-      setConnectionPacketTypeCounts((prev) => ({
-        ...prev,
-        [id]: {
-          ...(prev[id] || {}),
-          [packetType]: (prev[id]?.[packetType] || 0) + 1,
-        },
-      }))
     })
 
     unlisten.then((un) => unlistenAll.push(un))
     return () => unlistenAll.forEach((fn) => fn())
   }, [processedPackets])
 
+  // Periodically fetch packet statistics from backend
+  useEffect(() => {
+    fetchPacketStatistics()
+    const interval = setInterval(fetchPacketStatistics, 1000) // Update every second
+    return () => clearInterval(interval)
+  }, [fetchPacketStatistics])
+
   return {
-    /** Packet data organized by connection ID */
     data,
-    /** Real-time packet counts per connection */
     packetCounts,
-    /** Global packet type statistics */
-    globalPacketTypeCounts,
-    /** Per-connection packet type statistics */
-    connectionPacketTypeCounts,
-    /** Function to clear data for specific connection */
+    statistics,
     clearData,
-    /** Function to clear all packet data */
     clearAllData,
-    /** Function to remove connection data completely */
     removeConnectionData,
+    fetchPacketStatistics,
   }
 }

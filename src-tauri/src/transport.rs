@@ -25,6 +25,16 @@ pub trait Transport: Send + Sync {
     fn name(&self) -> String;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    
+    /// Get the total number of packets received by this transport
+    fn get_packet_received_count(&self) -> usize {
+        0 // Default implementation, override in specific transports
+    }
+    
+    /// Get the total number of packets sent by this transport
+    fn get_packet_sent_count(&self) -> usize {
+        0 // Default implementation, override in specific transports
+    }
 
     /// Share data from a channel to this transport in an independent Tokio task
     fn share_data_channel(self: Arc<Self>, rx: tokio::sync::mpsc::Receiver<Vec<u8>>, interval_ms: u64)

@@ -8,7 +8,13 @@ import type { BaseComponentProps } from "@/types"
  */
 interface PacketCountersProps extends BaseComponentProps {
   /** Global packet type counts across all connections */
-  globalPacketTypeCounts: Record<string, number>
+  globalPacketTypeCounts?: Record<string, number>
+  /** Total packets received across all connections */
+  totalPacketsReceived?: number
+  /** Total packets sent across all connections */
+  totalPacketsSent?: number
+  /** Number of active connections */
+  connectionCount?: number
 }
 
 /**
@@ -19,6 +25,7 @@ interface PacketCountersProps extends BaseComponentProps {
  * - Color-coded display
  * - Real-time updates
  * - Responsive grid layout
+ * - Total packet statistics
  *
  * @param props - Component props
  * @returns JSX element for packet counters or null if no data
@@ -31,12 +38,24 @@ interface PacketCountersProps extends BaseComponentProps {
  *     payload: 200,
  *     targetPacket: 50
  *   }}
+ *   totalPacketsReceived={400}
+ *   totalPacketsSent={200}
+ *   connectionCount={3}
  * />
  * ```
  */
-export function PacketCounters({ globalPacketTypeCounts, className }: PacketCountersProps) {
-  // Don't render if no packet data
-  if (Object.keys(globalPacketTypeCounts).length === 0) {
+export function PacketCounters({ 
+  globalPacketTypeCounts, 
+  totalPacketsReceived = 0,
+  totalPacketsSent = 0,
+  connectionCount = 0,
+  className 
+}: PacketCountersProps) {
+  // Don't render if no packet data and no connection stats
+  const hasPacketTypeData = globalPacketTypeCounts && Object.keys(globalPacketTypeCounts).length > 0
+  const hasConnectionStats = totalPacketsReceived > 0 || totalPacketsSent > 0 || connectionCount > 0
+  
+  if (!hasPacketTypeData && !hasConnectionStats) {
     return null
   }
 
@@ -59,27 +78,51 @@ export function PacketCounters({ globalPacketTypeCounts, className }: PacketCoun
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Activity className="h-5 w-5" />
-          All Packets Received by Type
+          Packet Statistics
         </CardTitle>
-        <CardDescription>Total packets received, grouped by type (all connections)</CardDescription>
+        <CardDescription>Real-time packet statistics across all connections</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-4">
-          {Object.entries(globalPacketTypeCounts).map(([type, count]) => {
-            const label = formatPacketTypeLabel(type)
+      <CardContent className="space-y-6">
+        {/* Connection Statistics */}
+        {hasConnectionStats && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex flex-col items-center p-4 bg-green-50 rounded shadow">
+              <span className="text-lg font-bold text-green-700">Received</span>
+              <span className="text-2xl font-mono text-green-700">{totalPacketsReceived.toLocaleString()}</span>
+            </div>
+            <div className="flex flex-col items-center p-4 bg-blue-50 rounded shadow">
+              <span className="text-lg font-bold text-blue-700">Sent</span>
+              <span className="text-2xl font-mono text-blue-700">{totalPacketsSent.toLocaleString()}</span>
+            </div>
+            <div className="flex flex-col items-center p-4 bg-purple-50 rounded shadow">
+              <span className="text-lg font-bold text-purple-700">Connections</span>
+              <span className="text-2xl font-mono text-purple-700">{connectionCount}</span>
+            </div>
+          </div>
+        )}
 
-            return (
-              <div
-                key={type}
-                className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px] hover:bg-blue-100 transition-colors"
-                title={`${label}: ${count} packets`}
-              >
-                <span className="text-lg font-bold text-blue-700 capitalize text-center">{label}</span>
-                <span className="text-2xl font-mono text-green-700">{count.toLocaleString()}</span>
-              </div>
-            )
-          })}
-        </div>
+        {/* Packet Type Counters */}
+        {hasPacketTypeData && (
+          <div>
+            <h3 className="text-lg font-semibold mb-3">Packets by Type</h3>
+            <div className="flex flex-wrap gap-4">
+              {Object.entries(globalPacketTypeCounts).map(([type, count]) => {
+                const label = formatPacketTypeLabel(type)
+
+                return (
+                  <div
+                    key={type}
+                    className="flex flex-col items-center p-4 bg-blue-50 rounded shadow min-w-[100px] hover:bg-blue-100 transition-colors"
+                    title={`${label}: ${count} packets`}
+                  >
+                    <span className="text-lg font-bold text-blue-700 capitalize text-center">{label}</span>
+                    <span className="text-2xl font-mono text-green-700">{count.toLocaleString()}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

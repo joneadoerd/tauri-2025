@@ -18,6 +18,8 @@ interface ConnectionListProps extends BaseComponentProps {
   connections: Connection[]
   /** Packet type counts organized by connection ID */
   connectionPacketTypeCounts: Record<string, Record<string, number>>
+  /** Backend connection packet counts (received, sent) */
+  connectionPacketCounts?: Record<string, { received: number; sent: number }>
   /** Log data organized by connection ID */
   logData: Record<string, string[]>
   /** Log visibility state by connection ID */
@@ -67,6 +69,7 @@ interface ConnectionListProps extends BaseComponentProps {
 export function ConnectionList({
   connections,
   connectionPacketTypeCounts,
+  connectionPacketCounts,
   logData,
   showLogData,
   onSendHeader,
@@ -89,6 +92,44 @@ export function ConnectionList({
       ...prev,
       [id]: !prev[id],
     }))
+  }
+
+  /**
+   * Renders packet count badge for a connection
+   */
+  const renderPacketCountBadge = (connectionId: string) => {
+    const packetCount = connectionPacketCounts?.[connectionId]
+    if (!packetCount || packetCount.received === 0) return null
+
+    return (
+      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+        {packetCount.received.toLocaleString()} packets
+      </Badge>
+    )
+  }
+
+  /**
+   * Renders detailed packet statistics for a connection
+   */
+  const renderDetailedPacketStats = (connectionId: string) => {
+    const packetCount = connectionPacketCounts?.[connectionId]
+    if (!packetCount) return null
+
+    return (
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Packet Statistics</Label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col items-center p-3 bg-green-50 rounded">
+            <span className="text-xs font-semibold text-green-700">Received</span>
+            <span className="text-lg font-mono text-green-700">{packetCount.received.toLocaleString()}</span>
+          </div>
+          <div className="flex flex-col items-center p-3 bg-blue-50 rounded">
+            <span className="text-xs font-semibold text-blue-700">Sent</span>
+            <span className="text-lg font-mono text-blue-700">{packetCount.sent.toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   /**
@@ -229,6 +270,7 @@ export function ConnectionList({
                     <CardTitle className="text-base truncate" title={conn.id}>
                       {conn.id}
                     </CardTitle>
+                    {renderPacketCountBadge(conn.id)}
                     {hasActiveShares(conn.id) && (
                       <Badge variant="secondary" className="text-xs flex-shrink-0">
                         {getActiveSharesCount(conn.id)} Share{getActiveSharesCount(conn.id) !== 1 ? "s" : ""}
@@ -287,6 +329,9 @@ export function ConnectionList({
               <CardContent className="pt-0 space-y-4">
                 {/* Packet Type Counters */}
                 {renderPacketCounters(conn.id)}
+
+                {/* Detailed Packet Statistics */}
+                {renderDetailedPacketStats(conn.id)}
 
                 {/* Log Management */}
                 {renderLogManagement(conn.id)}

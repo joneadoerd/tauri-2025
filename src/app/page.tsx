@@ -45,7 +45,7 @@ export default function App() {
         >
           Serial General
         </button>
-        <button
+        {/* <button
           className={`px-4 py-2 rounded ${
             activeTab === "SimulationStreamingDemo"
               ? "bg-blue-500 text-white"
@@ -54,7 +54,7 @@ export default function App() {
           onClick={() => setActiveTab("SimulationStreamingDemo")}
         >
           SimulationStreamingDemo
-        </button>
+        </button> */}
         <button
           className={`px-4 py-2 rounded ${
             activeTab === "simulation-map"
@@ -84,9 +84,9 @@ export default function App() {
         <div hidden={activeTab !== "serial-general"}>
           <SerialTabGeneral />
         </div>
-        <div hidden={activeTab !== "SimulationStreamingDemo"}>
+        {/* <div hidden={activeTab !== "SimulationStreamingDemo"}>
           <SimulationStreamingDemo />
-        </div>
+        </div> */}
         <div hidden={activeTab !== "simulation-map"}>
           <SimulationMapView />
         </div>

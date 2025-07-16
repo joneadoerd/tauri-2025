@@ -34,8 +34,7 @@ export default function SerialTabGenerals() {
   const {
     data,
     packetCounts,
-    globalPacketTypeCounts,
-    connectionPacketTypeCounts,
+    statistics,
     clearData,
     clearAllData,
     removeConnectionData,
@@ -218,7 +217,12 @@ export default function SerialTabGenerals() {
       </div>
 
       {/* Global Packet Counters */}
-      <PacketCounters globalPacketTypeCounts={globalPacketTypeCounts} />
+      <PacketCounters 
+        globalPacketTypeCounts={statistics.globalPacketTypeCounts}
+        totalPacketsReceived={statistics.totalPacketsReceived}
+        totalPacketsSent={statistics.totalPacketsSent}
+        connectionCount={statistics.connectionCount}
+      />
 
       {/* Active Shares Table */}
       <ActiveSharesTable allActiveShares={allActiveShares} onStopShare={stopShare} />
@@ -228,7 +232,8 @@ export default function SerialTabGenerals() {
       {/* Connection List */}
       <ConnectionList
         connections={connections}
-        connectionPacketTypeCounts={connectionPacketTypeCounts}
+        connectionPacketTypeCounts={statistics.connectionPacketTypeCounts}
+        connectionPacketCounts={statistics.connectionPacketCounts}
         logData={logData}
         showLogData={showLogData}
         onSendHeader={handleSendHeader}

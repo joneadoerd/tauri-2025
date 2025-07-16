@@ -8,12 +8,13 @@ use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
-use crate::transport::{ConnectionInfo, StatableTransport};
+use crate::transport::{ConnectionInfo, StatableTransport, Transport};
 
 use prost::Message;
 use tauri::{AppHandle, Emitter, State};
 use tokio::time;
 use uuid::Uuid;
+use std::collections::HashMap;
 
 #[tauri::command]
 pub async fn start_connection(
@@ -440,3 +441,66 @@ pub async fn share_udp_target_to_connection(
     share_tasks.insert((id.clone(), dest_connection_id.clone()), handle);
     Ok(id)
 }
+
+#[tauri::command]
+pub async fn get_udp_packet_received_count(
+    state: State<'_, Manager>,
+    connection_id: String,
+) -> Result<usize, String> {
+    let connections = &state.connections;
+    let conn = {
+        let guard = connections.read().unwrap();
+        guard.get(&connection_id).cloned()
+    };
+    if let Some(conn) = conn {
+        if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
+            Ok(udp.get_packet_received_count())
+        } else {
+            Err("Connection is not a UDP transport".to_string())
+        }
+    } else {
+        Err("Connection not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn get_serial_packet_received_count(
+    state: State<'_, Manager>,
+    connection_id: String,
+) -> Result<usize, String> {
+    let connections = &state.connections;
+    let conn = {
+        let guard = connections.read().unwrap();
+        guard.get(&connection_id).cloned()
+    };
+    if let Some(conn) = conn {
+        if let Some(serial) = conn.as_any().downcast_ref::<SerialTransport>() {
+            Ok(serial.get_packet_received_count())
+        } else {
+            Err("Connection is not a serial transport".to_string())
+        }
+    } else {
+        Err("Connection not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn get_total_packets_sent(state: State<'_, Manager>) -> Result<usize, String> {
+    Ok(state.get_total_packets_sent().await)
+}
+
+#[tauri::command]
+pub async fn get_total_packets_received(state: State<'_, Manager>) -> Result<usize, String> {
+    Ok(state.get_total_packets_received().await)
+}
+
+#[tauri::command]
+pub async fn get_connection_packet_counts(state: State<'_, Manager>) -> Result<HashMap<String, (usize, usize)>, String> {
+    Ok(state.get_connection_packet_counts().await)
+}
+
+#[tauri::command]
+pub async fn get_connection_count(state: State<'_, Manager>) -> Result<usize, String> {
+    Ok(state.get_connection_count().await)
+}
+

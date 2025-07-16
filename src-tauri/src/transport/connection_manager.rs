@@ -20,6 +20,32 @@ impl Manager {
             simulation_stream_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
+    
+    /// Get total packets received across all connections
+    pub async fn get_total_packets_received(&self) -> usize {
+        let guard = self.connections.read().unwrap();
+        guard.values().map(|transport| transport.get_packet_received_count()).sum()
+    }
+    
+    /// Get total packets sent across all connections
+    pub async fn get_total_packets_sent(&self) -> usize {
+        let guard = self.connections.read().unwrap();
+        guard.values().map(|transport| transport.get_packet_sent_count()).sum()
+    }
+    
+    /// Get packet counts for each connection
+    pub async fn get_connection_packet_counts(&self) -> HashMap<String, (usize, usize)> {
+        let guard = self.connections.read().unwrap();
+        guard.iter().map(|(id, transport)| {
+            (id.clone(), (transport.get_packet_received_count(), transport.get_packet_sent_count()))
+        }).collect()
+    }
+    
+    /// Get total number of active connections
+    pub async fn get_connection_count(&self) -> usize {
+        let guard = self.connections.read().unwrap();
+        guard.len()
+    }
     /// Share data from one connection to another by id, with interval
     pub async fn share_data_between_ids(
         &self,

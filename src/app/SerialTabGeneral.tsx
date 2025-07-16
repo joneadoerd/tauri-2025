@@ -1426,7 +1426,7 @@ const handleStartUdpListener = async (listenerId: string) => {
         )}
       </div>
       {/* Global Packet Type Counters */}
-      {Object.keys(globalPacketTypeCounts).length > 0 && (
+      {Object.keys(globalPacketTypeCounts || {}).length > 0 && (
         <div className="mt-4">
           <Card>
             <CardHeader>
@@ -1440,7 +1440,7 @@ const handleStartUdpListener = async (listenerId: string) => {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4">
-                {Object.entries(globalPacketTypeCounts).map(([type, count]) => {
+                {Object.entries(globalPacketTypeCounts || {}).map(([type, count]) => {
                   let label = type;
                   if (type.toLowerCase() === "targetpacket")
                     label = "TargetPacket";

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::packet::{Packet, packet::Kind, TargetPacket, TargetPacketList};
 use prost::bytes::BytesMut;
 use tokio::sync::Notify;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::transport::{ StatableTransport, Transport};
 
@@ -22,6 +23,8 @@ pub struct UdpTransport {
     pub cancel_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     pub target_data: Arc<Mutex<HashMap<u32, TargetPacket>>>, // Per-connection target data
     pub notify: Arc<Notify>, // Notifies when new target data is available
+    pub packet_received_count: Arc<AtomicUsize>,
+    pub packet_sent_count: Arc<AtomicUsize>, // Add packet sent counter
 }
 
 impl UdpTransport {
@@ -37,6 +40,8 @@ impl UdpTransport {
             cancel_tx: Arc::new(Mutex::new(None)),
             target_data: Arc::new(Mutex::new(HashMap::new())),
             notify: Arc::new(Notify::new()),
+            packet_received_count: Arc::new(AtomicUsize::new(0)),
+            packet_sent_count: Arc::new(AtomicUsize::new(0)),
         })
     }
 }
@@ -49,6 +54,8 @@ impl Transport for UdpTransport {
                 .send_to(&data, addr)
                 .await
                 .map_err(|e| e.to_string())?;
+            // Increment packet sent counter
+            self.packet_sent_count.fetch_add(1, Ordering::Relaxed);
             Ok(())
         } else {
             Err("Remote address not set".to_string())
@@ -74,6 +81,14 @@ impl Transport for UdpTransport {
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+    
+    fn get_packet_received_count(&self) -> usize {
+        self.packet_received_count.load(Ordering::Relaxed)
+    }
+    
+    fn get_packet_sent_count(&self) -> usize {
+        self.packet_sent_count.load(Ordering::Relaxed)
     }
 }
 

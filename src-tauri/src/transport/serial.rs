@@ -1,17 +1,14 @@
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use prost::Message;
-
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
-use tokio::sync::Mutex as TokioMutex;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{error, info as trace_info};
 use prost::bytes::BytesMut;
 use prost::bytes::Buf;
 use tokio::sync::Notify;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::storage::file_logger::log_sent_data;
 use crate::transport::{StatableTransport, Transport};
@@ -24,6 +21,8 @@ pub struct SerialTransport {
     reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub last_data: Arc<Mutex<Option<Vec<u8>>>>, // Per-connection last data
     pub notify: Arc<Notify>, // Notifies when new data is available
+    pub packet_received_count: Arc<AtomicUsize>,
+    pub packet_sent_count: Arc<AtomicUsize>, // Add packet sent counter
 }
 
 impl SerialTransport {
@@ -35,12 +34,22 @@ impl SerialTransport {
             reader_task: Arc::new(Mutex::new(None)),
             last_data: Arc::new(Mutex::new(None)),
             notify: Arc::new(Notify::new()),
+            packet_received_count: Arc::new(AtomicUsize::new(0)),
+            packet_sent_count: Arc::new(AtomicUsize::new(0)),
         }
     }
+    
     pub fn list_ports() -> Result<Vec<String>, String> {
         serialport::available_ports()
             .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
             .map_err(|e| e.to_string())
+    }
+    pub fn get_packet_received_count(&self) -> usize {
+        self.packet_received_count.load(Ordering::Relaxed)
+    }
+    
+    pub fn get_packet_sent_count(&self) -> usize {
+        self.packet_sent_count.load(Ordering::Relaxed)
     }
 }
 
@@ -51,6 +60,8 @@ impl Transport for SerialTransport {
             writer.write_all(&data).await.map_err(|e| e.to_string())?;
             writer.flush().await.map_err(|e| e.to_string())?;
             log_sent_data(self.name().as_str(), &data);
+            // Increment packet sent counter
+            self.packet_sent_count.fetch_add(1, Ordering::Relaxed);
             Ok(())
         } else {
             Err("Writer not initialized.".to_string())
@@ -72,6 +83,14 @@ impl Transport for SerialTransport {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+    
+    fn get_packet_received_count(&self) -> usize {
+        self.packet_received_count.load(Ordering::Relaxed)
+    }
+    
+    fn get_packet_sent_count(&self) -> usize {
+        self.packet_sent_count.load(Ordering::Relaxed)
+    }
 }
 
 impl StatableTransport for SerialTransport {
@@ -91,6 +110,7 @@ impl StatableTransport for SerialTransport {
         let last_data = self.last_data.clone();
         let reader_id = id.clone();
         let notify = self.notify.clone();
+        let packet_received_count = self.packet_received_count.clone();
 
         let task = tokio::spawn(async move {
             let mut buffer = BytesMut::with_capacity(4096);
@@ -103,6 +123,7 @@ impl StatableTransport for SerialTransport {
                 buf.resize(1024, 0);
                 match reader.lock().await.as_mut().unwrap().read(&mut buf).await {
                     Ok(n) if n > 0 => {
+                        packet_received_count.fetch_add(1, Ordering::Relaxed);
                         buf.truncate(n);
                         buffer.extend_from_slice(&buf);
 
