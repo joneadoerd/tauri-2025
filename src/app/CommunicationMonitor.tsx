@@ -1,37 +1,46 @@
-"use client"
+"use client";
 
-import { useState, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { useSerialConnections } from "@/hooks/use-serial-connections"
-import { usePacketData } from "@/hooks/use-packet-data"
-import { useUdpConnections } from "@/hooks/use-udp-connections"
-import { useSimulation } from "@/hooks/use-simulation"
-import { useShares } from "@/hooks/use-shares"
-import { useUdpTargets } from "@/hooks/use-udp-targets"
-import { useLogFiles } from "@/hooks/use-log-files"
-import { ConnectionForm } from "@/components/connection-form"
-import { PacketCounters } from "@/components/packet-counters"
-import { ConnectionList } from "@/components/connection-list"
-import { PacketDisplay } from "@/components/packet-display"
-import { UdpListeners } from "@/components/udp-config"
-import { UdpServerInit } from "@/components/udp-server-init"
-import { SimulationStreaming } from "@/components/simulation-section"
-import { UdpTargetSharing } from "@/components/udp-target-sharing"
-import { ActiveSharesTable } from "@/components/active-shares-table"
-import { LogFilesSection } from "@/components/log-files-section"
-import { DebugInfo } from "@/components/debug-info"
-import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions"
-import { invoke } from "@tauri-apps/api/core"
+import { useState, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Settings } from "lucide-react";
+import { useSerialConnections } from "@/hooks/use-serial-connections";
+import { usePacketData } from "@/hooks/use-packet-data";
+import { useUdpConnections } from "@/hooks/use-udp-connections";
+import { useSimulation } from "@/hooks/use-simulation";
+import { useShares } from "@/hooks/use-shares";
+import { useUdpTargets } from "@/hooks/use-udp-targets";
+import { useLogFiles } from "@/hooks/use-log-files";
+import { ConnectionForm } from "@/components/connection-form";
+import { PacketCounters } from "@/components/packet-counters";
+import { ConnectionList } from "@/components/connection-list";
+import { PacketDisplay } from "@/components/packet-display";
+import { UdpListeners } from "@/components/udp-config";
+import { UdpServerInit } from "@/components/udp-server-init";
+import { SimulationStreaming } from "@/components/simulation-section";
+import { SimulationConfigDialog } from "@/components/simulation-config-dialog";
+import { UdpTargetSharing } from "@/components/udp-target-sharing";
+import { ActiveSharesTable } from "@/components/active-shares-table";
+import { LogFilesSection } from "@/components/log-files-section";
+import { DebugInfo } from "@/components/debug-info";
+import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions";
+import { invoke } from "@tauri-apps/api/core";
 
-export default function SerialTabGenerals() {
-  const [autoRefresh, setAutoRefresh] = useState(true)
-  const [resetting, setResetting] = useState(false)
+export default function CommunicationMonitor() {
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [resetting, setResetting] = useState(false);
 
   // Custom hooks
-  const { ports, connections, refreshing, refreshConnections, connect, disconnect, disconnectAll } =
-    useSerialConnections()
+  const {
+    ports,
+    connections,
+    refreshing,
+    refreshConnections,
+    connect,
+    disconnect,
+    disconnectAll,
+  } = useSerialConnections();
 
   const {
     data,
@@ -41,12 +50,19 @@ export default function SerialTabGenerals() {
     clearAllData,
     removeConnectionData,
     resetCounters,
-  } = usePacketData()
+  } = usePacketData();
 
-  const { udpListeners, addUdpListener, removeUdpListener } = useUdpConnections()
+  const { udpListeners, addUdpListener, removeUdpListener } =
+    useUdpConnections();
 
-  const { activeSimulationStreams, simUdpConnId, simUdpError, totalUdpTargets, startSimulationUdp, stopSimulationUdp } =
-    useSimulation()
+  const {
+    activeSimulationStreams,
+    simUdpConnId,
+    simUdpError,
+    totalUdpTargets,
+    startSimulationUdp,
+    stopSimulationUdp,
+  } = useSimulation();
 
   const {
     allActiveShares,
@@ -57,9 +73,14 @@ export default function SerialTabGenerals() {
     hasActiveShares,
     getActiveSharesCount,
     hasAnyActiveShares,
-  } = useShares()
+  } = useShares();
 
-  const { udpShareTargets, udpShareLoadingTargets, fetchUdpTargets } = useUdpTargets()
+  const {
+    udpShareTargets,
+    udpShareLoadingTargets,
+    fetchUdpTargets,
+    fetchTotalUdpTargets,
+  } = useUdpTargets();
 
   const {
     logFiles,
@@ -73,70 +94,81 @@ export default function SerialTabGenerals() {
     loadLogsDirectory,
     loadAppRootDirectory,
     clearLogFiles,
-  } = useLogFiles()
+  } = useLogFiles();
 
   // Actions
   const handleInitComs = useCallback(async () => {
-    await connect("com3_id", "COM3", 115200, "Header")
-    await connect("com6_id", "COM6", 115200, "Header")
-  }, [connect])
+    await connect("com3_id", "COM3", 115200, "Header");
+    await connect("com6_id", "COM6", 115200, "Header");
+  }, [connect]);
 
   const handleSendHeader = useCallback(async (id: string, name: string) => {
     try {
-      await sendHeaderPacket(id)
+      await sendHeaderPacket(id);
     } catch (error) {
-      console.error("Error sending header:", error)
+      console.error("Error sending header:", error);
     }
-  }, [])
+  }, []);
 
   const handleSendPayload = useCallback(async (id: string, name: string) => {
     try {
-      await sendPayloadPacket(id)
+      await sendPayloadPacket(id);
     } catch (error) {
-      console.error("Error sending payload:", error)
+      console.error("Error sending payload:", error);
     }
-  }, [])
+  }, []);
 
   const handleDisconnect = useCallback(
     async (id: string, name: string) => {
-      await disconnect(id)
-      removeConnectionData(id)
+      await disconnect(id);
+      removeConnectionData(id);
     },
-    [disconnect, removeConnectionData],
-  )
+    [disconnect, removeConnectionData]
+  );
 
   const handleDisconnectAll = useCallback(async () => {
-    await disconnectAll()
-    clearAllData()
-  }, [disconnectAll, clearAllData])
+    await disconnectAll();
+    clearAllData();
+  }, [disconnectAll, clearAllData]);
 
   const handleResetCounters = useCallback(async () => {
-    setResetting(true)
+    setResetting(true);
     try {
-      await resetCounters()
+      await resetCounters();
       // Refresh connections to get updated backend state
       setTimeout(() => {
-        refreshConnections()
-        setResetting(false)
-      }, 300)
+        refreshConnections();
+        setResetting(false);
+      }, 300);
     } catch (error) {
-      setResetting(false)
-      console.error("Failed to reset counters:", error)
+      setResetting(false);
+      console.error("Failed to reset counters:", error);
     }
-  }, [refreshConnections, resetCounters])
+  }, [refreshConnections, resetCounters]);
 
-  const totalPackets = Object.values(data).reduce((sum, packets) => sum + packets.length, 0)
+  const totalPackets = Object.values(data).reduce(
+    (sum, packets) => sum + packets.length,
+    0
+  );
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6">
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Serial Communication Monitor</h1>
-          <p className="text-muted-foreground">Real-time packet monitoring and analysis</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            Communication Monitor
+          </h1>
+          <p className="text-muted-foreground">
+            Real-time packet monitoring and analysis
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => setAutoRefresh((v) => !v)} variant={autoRefresh ? "default" : "outline"} size="sm">
+          <Button
+            onClick={() => setAutoRefresh((v) => !v)}
+            variant={autoRefresh ? "default" : "outline"}
+            size="sm"
+          >
             Auto-refresh {autoRefresh ? "ON" : "OFF"}
           </Button>
           <Button onClick={loadLogsDirectory} variant="outline" size="sm">
@@ -145,7 +177,9 @@ export default function SerialTabGenerals() {
           <Button onClick={loadAppRootDirectory} variant="outline" size="sm">
             App Root
           </Button>
-          {totalUdpTargets > 0 && <Badge variant="outline">{totalUdpTargets} UDP targets</Badge>}
+          {totalUdpTargets > 0 && (
+            <Badge variant="outline">{totalUdpTargets} UDP targets</Badge>
+          )}
         </div>
       </div>
 
@@ -170,7 +204,9 @@ export default function SerialTabGenerals() {
               ? "Cannot disconnect all connections while shares are running. Stop all shares first."
               : "Disconnect All Connections"
           }
-          className={hasAnyActiveShares() ? "opacity-50 cursor-not-allowed" : ""}
+          className={
+            hasAnyActiveShares() ? "opacity-50 cursor-not-allowed" : ""
+          }
         >
           Disconnect All
         </Button>
@@ -184,7 +220,8 @@ export default function SerialTabGenerals() {
         </Button>
         {hasAnyActiveShares() && (
           <Badge variant="secondary" className="text-xs">
-            {allActiveShares.length} active share{allActiveShares.length !== 1 ? "s" : ""}
+            {allActiveShares.length} active share
+            {allActiveShares.length !== 1 ? "s" : ""}
           </Badge>
         )}
       </div>
@@ -218,6 +255,22 @@ export default function SerialTabGenerals() {
 
         {/* Right Column */}
         <div className="space-y-6">
+          {/* Simulation Configuration */}
+          <div className="flex items-center gap-4">
+            <SimulationConfigDialog
+              onSimulationComplete={() => {
+                // Refresh UDP targets after simulation completion
+                fetchTotalUdpTargets();
+                console.log("Simulation completed successfully!");
+              }}
+            >
+              <Button variant="outline" className="flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                Simulation Config
+              </Button>
+            </SimulationConfigDialog>
+          </div>
+
           {/* Simulation Streaming */}
           <SimulationStreaming
             activeSimulationStreams={activeSimulationStreams}
@@ -228,7 +281,11 @@ export default function SerialTabGenerals() {
           />
 
           {/* Log Files */}
-          <LogFilesSection logFiles={logFiles} onLoadLogFiles={loadLogFiles} onClearLogFiles={clearLogFiles} />
+          <LogFilesSection
+            logFiles={logFiles}
+            onLoadLogFiles={loadLogFiles}
+            onClearLogFiles={clearLogFiles}
+          />
 
           {/* Debug Information */}
           <DebugInfo
@@ -243,7 +300,7 @@ export default function SerialTabGenerals() {
       </div>
 
       {/* Global Packet Counters */}
-      <PacketCounters 
+      <PacketCounters
         globalPacketTypeCounts={statistics.globalPacketTypeCounts}
         totalPacketsReceived={statistics.totalPacketsReceived}
         totalPacketsSent={statistics.totalPacketsSent}
@@ -251,7 +308,10 @@ export default function SerialTabGenerals() {
       />
 
       {/* Active Shares Table */}
-      <ActiveSharesTable allActiveShares={allActiveShares} onStopShare={stopShare} />
+      <ActiveSharesTable
+        allActiveShares={allActiveShares}
+        onStopShare={stopShare}
+      />
 
       <Separator />
 
@@ -273,7 +333,12 @@ export default function SerialTabGenerals() {
       />
 
       {/* Packet Display */}
-      <PacketDisplay data={data} packetCounts={packetCounts} onClearAll={clearAllData} onClearCurrent={clearData} />
+      <PacketDisplay
+        data={data}
+        packetCounts={packetCounts}
+        onClearAll={clearAllData}
+        onClearCurrent={clearData}
+      />
 
       {/* Scroll to top button */}
       <div className="fixed bottom-4 right-4 z-50">
@@ -287,5 +352,5 @@ export default function SerialTabGenerals() {
         </Button>
       </div>
     </div>
-  )
+  );
 }

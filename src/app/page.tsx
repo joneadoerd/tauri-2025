@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import ZmqTab from "./ZmqTab";
 import SerialTab from "./SerialTab";
 import SerialTabGeneral  from "./SerialTabGeneral";
-import SerialTabGenerals  from "./serial-tab-general";
+import CommunicationMonitor  from "./CommunicationMonitor";
 import SimulationRunner from "./SimulationRunner";
 import SimulationMapView from "./simulation-map";
 import SimulationStreamingDemo from "./SimulationStreamingDemo";
@@ -79,7 +79,7 @@ export default function App() {
           <ZmqTab />
         </div>
         <div hidden={activeTab !== "serial"}>
-          <SerialTabGenerals />
+          <CommunicationMonitor />
         </div>
         <div hidden={activeTab !== "serial-general"}>
           <SerialTabGeneral />

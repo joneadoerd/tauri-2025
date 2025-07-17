@@ -1,6 +1,7 @@
 use crate::transport::{ConnectionInfo, Transport};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tokio::time;
 
 #[derive(Default, Clone)]
 pub struct Manager {
@@ -230,12 +231,13 @@ impl Manager {
             }
             // Now stop the original connection with timeout
             let _ = tokio::time::timeout(std::time::Duration::from_secs(3), transport.stop()).await;
-            // Abort and remove all share tasks for this connection
+            // Abort and remove all share tasks where this connection is either source or destination
             let mut share_tasks = self.share_tasks.lock().await;
             let keys: Vec<_> = share_tasks.keys().cloned().collect();
             for (share_id, conn_id) in keys {
-                if conn_id == id {
-                    if let Some(handle) = share_tasks.remove(&(share_id, conn_id)) {
+                if conn_id == id || share_id == id {
+                    if let Some(handle) = share_tasks.remove(&(share_id.clone(), conn_id.clone())) {
+                        println!("[manager] Aborting share task for {} -> {}", share_id, conn_id);
                         handle.abort();
                     }
                 }
@@ -309,7 +311,6 @@ impl Manager {
         use crate::transport::udp::UdpTransport;
         use prost::Message;
         use std::sync::Arc;
-        use tokio::time;
         use uuid::Uuid;
 
         let id = format!("sim_udp_{}", Uuid::new_v4());
@@ -370,13 +371,19 @@ impl Manager {
             }
         }
 
-        // Use a simpler, more direct approach to avoid hanging
-        {
-            let connections = self.connections.clone();
-            if let Some(_transport) = connections.write().unwrap().remove(id) {
-                println!("[manager] Removing connection {} from map", id);
-                // Don't call transport.stop() as it might hang, just drop it
-            };
+        // Extract the transport and drop the lock before await
+        let transport_to_stop = {
+            let mut connections = self.connections.write().unwrap();
+            connections.remove(id)
+        };
+        
+        // Stop the transport if it exists
+        if let Some(transport) = transport_to_stop {
+            println!("[manager] Stopping and removing connection {} from map", id);
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                transport.stop(),
+            ).await;
         }
 
         // Also clean up any share tasks for this connection
