@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import ZmqTab from "./ZmqTab";
 import SerialTab from "./SerialTab";
-import SerialTabGeneral  from "./SerialTabGeneral";
+// import SerialTabGeneral  from "./SerialTabGeneral";
 import CommunicationMonitor  from "./CommunicationMonitor";
 import SimulationRunner from "./SimulationRunner";
 import SimulationMapView from "./simulation-map";
@@ -11,40 +11,40 @@ import UDPTapGeneral from "./UDPTapGeneral";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "zmq" | "serial" | "serial-general" | "SimulationStreamingDemo" | "simulation-map" | "udp-general"
-  >("serial");
+    "zmq" | "Communication-Monitor" | "Communication-Monitor-general" | "SimulationStreamingDemo" | "simulation-map" | "udp-general"
+  >("Communication-Monitor");
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="flex gap-4 mb-4">
-        <button
+        {/* <button
           className={`px-4 py-2 rounded ${
             activeTab === "zmq" ? "bg-blue-500 text-white" : "bg-white border"
           }`}
           onClick={() => setActiveTab("zmq")}
         >
           ZMQ
-        </button>
+        </button> */}
         <button
           className={`px-4 py-2 rounded ${
-            activeTab === "serial"
+            activeTab === "Communication-Monitor"
               ? "bg-blue-500 text-white"
               : "bg-white border"
           }`}
-          onClick={() => setActiveTab("serial")}
+          onClick={() => setActiveTab("Communication-Monitor")}
         >
-          Serial
+          Communication Monitor
         </button>
-        <button
+        {/* <button
           className={`px-4 py-2 rounded ${
-            activeTab === "serial-general"
+            activeTab === "Communication-Monitor-general"
               ? "bg-blue-500 text-white"
               : "bg-white border"
           }`}
-          onClick={() => setActiveTab("serial-general")}
+          onClick={() => setActiveTab("Communication-Monitor-general")}
         >
           Serial General
-        </button>
+        </button> */}
         {/* <button
           className={`px-4 py-2 rounded ${
             activeTab === "SimulationStreamingDemo"
@@ -55,7 +55,7 @@ export default function App() {
         >
           SimulationStreamingDemo
         </button> */}
-        <button
+        {/* <button
           className={`px-4 py-2 rounded ${
             activeTab === "simulation-map"
               ? "bg-blue-500 text-white"
@@ -72,27 +72,27 @@ export default function App() {
           onClick={() => setActiveTab("udp-general")}
         >
           UDP General
-        </button>
+        </button> */}
       </div>
       <div>
-        <div hidden={activeTab !== "zmq"}>
+        {/* <div hidden={activeTab !== "zmq"}>
           <ZmqTab />
-        </div>
-        <div hidden={activeTab !== "serial"}>
+        </div> */}
+        <div hidden={activeTab !== "Communication-Monitor"}>
           <CommunicationMonitor />
         </div>
-        <div hidden={activeTab !== "serial-general"}>
+        {/* <div hidden={activeTab !== "Communication-Monitor-general"}>
           <SerialTabGeneral />
-        </div>
+        </div> */}
         {/* <div hidden={activeTab !== "SimulationStreamingDemo"}>
           <SimulationStreamingDemo />
         </div> */}
-        <div hidden={activeTab !== "simulation-map"}>
+        {/* <div hidden={activeTab !== "simulation-map"}>
           <SimulationMapView />
-        </div>
-        <div hidden={activeTab !== "udp-general"}>
+        </div> */}
+        {/* <div hidden={activeTab !== "udp-general"}>
           <UDPTapGeneral />
-        </div>
+        </div> */}
       </div>
     </div>
   );

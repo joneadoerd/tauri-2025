@@ -13,8 +13,10 @@ mod zmq_server_tokio;
 use std::sync::Arc;
 
 use commands_async::{
-    add_sub, disconnect, init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
-    send_data, start_serial, AppState,
+    disconnect,
+    // add_sub,  init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
+    send_data,
+    AppState,
 };
 use general::{
     // commands::{
@@ -24,36 +26,22 @@ use general::{
     simulation_commands::{
         clear_simulation_data, get_simulation_data, simulation, SimulationDataState,
     },
-    simulation_streaming::{
-        check_simulation_data_available,
-        get_active_sensor_streams,
-        get_active_simulation_streams,
-        get_available_simulation_connections,
-        get_available_simulation_targets,
-        get_udp_sensor_clients,
-        start_sensor_streaming,
-        start_simulation_streaming,
-        stop_sensor_streaming,
-        stop_sensor_target_stream,
-        stop_simulation_streaming,
-        stop_target_stream,
-        // Sensor streaming
-        SensorStreamer as UdpSensorStreamer,
-        SimulationStreamer,
-    },
+    // simulation_streaming::{
+    //     check_simulation_data_available, get_active_sensor_streams, get_active_simulation_streams,
+    //     get_available_simulation_connections, get_available_simulation_targets,
+    //     get_udp_sensor_clients, start_sensor_streaming, start_simulation_streaming,
+    //     stop_sensor_streaming, stop_sensor_target_stream, stop_simulation_streaming,
+    //     stop_target_stream,
+    // },
 };
-
 use tokio::sync::OnceCell;
 
-use crate::general::simulation_streaming::{
-    map_udp_sensor_target, send_sensor_command, set_target_udp_addr, unmap_udp_sensor_target,
-};
+use crate::{general::sensor_udp_server::SharedSensorMap, transport::connection_manager::Manager};
+// use crate::general::simulation_streaming::{
+//     map_udp_sensor_target, send_sensor_command, set_target_udp_addr, unmap_udp_sensor_target,
+// };
 use crate::simulation_state::command::{
     reset_simulation_timer, start_simulation_timer, stop_simulation_timer, SimTimerState,
-};
-use crate::{
-    general::sensor_udp_server::{SharedClientAddrMap, SharedSensorMap},
-    transport::connection_manager::Manager,
 };
 
 // Global sensor map for UDP server
@@ -67,39 +55,39 @@ async fn main() {
     // Create serial manager and simulation streamer
     // Assume you have a `Manager` initialized already:
     let serial_manager = Manager::new(); // Or however it's created
-    let simulation_streamer = Arc::new(SimulationStreamer::new(Arc::new(serial_manager.clone())));
-    // Add sensor streamer
-    let sensor_streamer = Arc::new(UdpSensorStreamer::new(Arc::new(serial_manager.clone())));
+                                                  // let simulation_streamer = Arc::new(SimulationStreamer::new(Arc::new(serial_manager.clone())));
+                                                  // Add sensor streamer
+                                                  // let sensor_streamer = Arc::new(UdpSensorStreamer::new(Arc::new(serial_manager.clone())));
 
     // Initialize and start UDP server before Tauri runs
-    let udp_socket = Arc::new(
-        tokio::net::UdpSocket::bind("0.0.0.0:5001")
-            .await
-            .expect("could not bind UDP server"),
-    );
-    let sensor_map = SharedSensorMap::default();
-    let client_addr_map = SharedClientAddrMap::default();
+    // let udp_socket = Arc::new(
+    //     tokio::net::UdpSocket::bind("0.0.0.0:5001")
+    //         .await
+    //         .expect("could not bind UDP server"),
+    // );
+    // let sensor_map = SharedSensorMap::default();
+    // let client_addr_map = SharedClientAddrMap::default();
 
-    // Clone for the closure
-    let udp_socket_for_task = udp_socket.clone();
-    let client_addr_map_for_task = client_addr_map.clone();
-    let sensor_map_for_task = sensor_map.clone();
-    SENSOR_MAP.set(sensor_map.clone()).unwrap();
+    // // Clone for the closure
+    // let udp_socket_for_task = udp_socket.clone();
+    // let client_addr_map_for_task = client_addr_map.clone();
+    // let sensor_map_for_task = sensor_map.clone();
+    // SENSOR_MAP.set(sensor_map.clone()).unwrap();
 
     tauri::Builder::default()
-        .setup(move |app| {
-            let app_handle = app.handle().clone();
-            tokio::spawn(async move {
-                crate::general::sensor_udp_server::start_udp_server(
-                    udp_socket_for_task,
-                    sensor_map_for_task,
-                    client_addr_map_for_task,
-                    app_handle,
-                )
-                .await;
-            });
-            Ok(())
-        })
+        // .setup(move |app| {
+        //     let app_handle = app.handle().clone();
+        //     tokio::spawn(async move {
+        //         crate::general::sensor_udp_server::start_udp_server(
+        //             udp_socket_for_task,
+        //             sensor_map_for_task,
+        //             client_addr_map_for_task,
+        //             app_handle,
+        //         )
+        //         .await;
+        //     });
+        //     Ok(())
+        // })
         .plugin(tauri_plugin_shell::init())
         .manage(Arc::new(std::sync::Mutex::new(SimTimerState {
             handle: None,
@@ -108,22 +96,22 @@ async fn main() {
             total_steps: 0,
         })))
         .manage(serial_manager)
-        .manage(simulation_streamer)
-        .manage(sensor_streamer)
+        // .manage(simulation_streamer)
+        // .manage(sensor_streamer)
         .manage(AppState::default())
         .manage(SimulationDataState::default())
         // .manage(transport::commands::SimulationDataStateManager::default())
-        .manage(client_addr_map)
-        .manage(udp_socket)
+        // .manage(client_addr_map)
+        // .manage(udp_socket)
         // .manage(transport::connection_manager::Manager::new())
         .invoke_handler(tauri::generate_handler![
-            init_zmq,
-            add_sub,
-            remove_sub,
-            list_subs,
-            list_subs_with_status,
-            list_ports,
-            start_serial,
+            // init_zmq,
+            // add_sub,
+            // remove_sub,
+            // list_subs,
+            // list_subs_with_status,
+            // list_ports,
+            // start_serial,
             disconnect,
             transport::commands::start_connection,
             transport::commands::start_udp_connection,
@@ -175,22 +163,22 @@ async fn main() {
             stop_simulation_timer,
             reset_simulation_timer,
             // Add simulation streaming commands
-            start_simulation_streaming,
-            stop_simulation_streaming,
-            stop_target_stream,
-            get_active_simulation_streams,
-            get_available_simulation_connections,
-            get_available_simulation_targets,
-            check_simulation_data_available,
-            get_udp_sensor_clients,
-            start_sensor_streaming,
-            stop_sensor_streaming,
-            stop_sensor_target_stream,
-            get_active_sensor_streams,
-            send_sensor_command,
-            map_udp_sensor_target,
-            unmap_udp_sensor_target,
-            set_target_udp_addr,
+            // start_simulation_streaming,
+            // stop_simulation_streaming,
+            // stop_target_stream,
+            // get_active_simulation_streams,
+            // get_available_simulation_connections,
+            // get_available_simulation_targets,
+            // check_simulation_data_available,
+            // get_udp_sensor_clients,
+            // start_sensor_streaming,
+            // stop_sensor_streaming,
+            // stop_sensor_target_stream,
+            // get_active_sensor_streams,
+            // send_sensor_command,
+            // map_udp_sensor_target,
+            // unmap_udp_sensor_target,
+            // set_target_udp_addr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
