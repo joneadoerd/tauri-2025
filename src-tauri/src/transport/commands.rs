@@ -16,6 +16,9 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::time;
 use uuid::Uuid;
 
+use crate::packet::{Lla, Ned};
+use crate::transport::convert::lla_to_ned;
+
 #[tauri::command]
 pub async fn start_connection(
     state: State<'_, Manager>,
@@ -170,8 +173,12 @@ pub async fn start_simulation_udp_streaming(
     local_addr: String,
     remote_addr: String,
     interval_ms: u64,
+    origin_lat: f64,
+    origin_lon: f64,
+    origin_alt: f64,
 ) -> Result<String, String> {
-    use crate::packet::TargetPacket;
+    use crate::packet::{TargetPacket, Lla, Ned};
+    use crate::transport::convert::lla_to_ned;
     use std::net::SocketAddr;
     let local_addr: SocketAddr = local_addr
         .parse()
@@ -192,14 +199,40 @@ pub async fn start_simulation_udp_streaming(
             .as_ref()
             .ok_or("No simulation results in state. Run a simulation first.")?;
         let mut packets = Vec::new();
+        let origin = Lla {
+            lat: origin_lat,
+            lon: origin_lon,
+            alt: origin_alt,
+        };
         for result in &simulation_data.results {
+            let mut prev_ned: Option<Ned> = None;
+            let mut prev_time: Option<f64> = None;
             for state in &result.final_state {
-                packets.push(TargetPacket {
-                    target_id: result.target_id,
+                let lla = Lla {
                     lat: state.lat,
                     lon: state.lon,
                     alt: state.alt,
+                };
+                let ned = lla_to_ned(&origin, &lla);
+                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                    let dt = state.time.unwrap_or(0.0) - prev_t;
+                    if dt > 0.0 {
+                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                    } else {
+                        (0.0, 0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0, 0.0)
+                };
+                prev_ned = Some(ned.clone());
+                prev_time = state.time;
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lla: Some(lla),
+                    ned: Some(ned.clone()),
+                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
                     time: state.time.unwrap_or(0.0),
+                    origin: Some(origin.clone()),
                 });
             }
         }
@@ -247,15 +280,41 @@ pub async fn share_target_to_udp_server(
         .as_ref()
         .ok_or("No simulation results in state. Run a simulation first.")?;
     let mut packets = Vec::new();
+    let origin = Lla {
+        lat: 0.0, // Default origin
+        lon: 0.0, // Default origin
+        alt: 0.0, // Default origin
+    };
     for result in &simulation_data.results {
         if result.target_id == target_id {
+            let mut prev_ned: Option<Ned> = None;
+            let mut prev_time: Option<f64> = None;
             for state in &result.final_state {
-                packets.push(TargetPacket {
-                    target_id: result.target_id,
+                let lla = Lla {
                     lat: state.lat,
                     lon: state.lon,
                     alt: state.alt,
+                };
+                let ned = lla_to_ned(&origin, &lla);
+                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                    let dt = state.time.unwrap_or(0.0) - prev_t;
+                    if dt > 0.0 {
+                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                    } else {
+                        (0.0, 0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0, 0.0)
+                };
+                prev_ned = Some(ned.clone());
+                prev_time = state.time;
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lla: Some(lla),
+                    ned: Some(ned.clone()),
+                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
                     time: state.time.unwrap_or(0.0),
+                    origin: Some(origin.clone()),
                 });
             }
         }
@@ -289,15 +348,41 @@ pub async fn share_target_to_connection(
         .as_ref()
         .ok_or("No simulation results in state. Run a simulation first.")?;
     let mut packets = Vec::new();
+    let origin = Lla {
+        lat: 0.0, // Default origin
+        lon: 0.0, // Default origin
+        alt: 0.0, // Default origin
+    };
     for result in &simulation_data.results {
         if result.target_id == target_id {
+            let mut prev_ned: Option<Ned> = None;
+            let mut prev_time: Option<f64> = None;
             for state in &result.final_state {
-                packets.push(TargetPacket {
-                    target_id: result.target_id,
+                let lla = Lla {
                     lat: state.lat,
                     lon: state.lon,
                     alt: state.alt,
+                };
+                let ned = lla_to_ned(&origin, &lla);
+                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                    let dt = state.time.unwrap_or(0.0) - prev_t;
+                    if dt > 0.0 {
+                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                    } else {
+                        (0.0, 0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0, 0.0)
+                };
+                prev_ned = Some(ned.clone());
+                prev_time = state.time;
+                packets.push(TargetPacket {
+                    target_id: result.target_id,
+                    lla: Some(lla),
+                    ned: Some(ned.clone()),
+                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
                     time: state.time.unwrap_or(0.0),
+                    origin: Some(origin.clone()),
                 });
             }
         }

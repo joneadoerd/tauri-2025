@@ -115,12 +115,25 @@ message SerialPacketEvent {
   Packet packet = 2;
 }
 
+message LLA {
+  double lat = 1;
+  double lon = 2;
+  double alt = 3;
+}
+
+message NED {
+  double north = 1;
+  double east = 2;
+  double down = 3;
+}
+
 message TargetPacket {
   uint32 target_id = 1;
-  double lat = 2;
-  double lon = 3;
-  double alt = 4;
+  LLA lla = 2;
+  NED ned = 3;
+  NED ned_velocity = 4;
   double time = 5;
+  LLA origin = 6;
 }
 
 message TargetPacketList {

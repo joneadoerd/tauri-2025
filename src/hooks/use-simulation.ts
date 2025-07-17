@@ -80,25 +80,35 @@ export function useSimulation() {
   }, [])
 
   const startSimulationUdp = useCallback(
-    async (localAddr: string, remoteAddr: string, intervalMs: number) => {
-      setSimUdpError(null)
+    async (
+      localAddr: string,
+      remoteAddr: string,
+      intervalMs: number,
+      originLat: number,
+      originLon: number,
+      originAlt: number
+    ) => {
+      setSimUdpError(null);
       try {
         const id = await invoke<string>("start_simulation_udp_streaming", {
           localAddr,
           remoteAddr,
           intervalMs,
-        })
-        setSimUdpConnId(id)
-        setTimeout(fetchActiveSimulationStreams, 1000)
-        return id
+          originLat,
+          originLon,
+          originAlt,
+        });
+        setSimUdpConnId(id);
+        setTimeout(fetchActiveSimulationStreams, 1000);
+        return id;
       } catch (e: any) {
-        const errorMsg = e?.toString() || "Failed to start UDP simulation streaming"
-        setSimUdpError(errorMsg)
-        throw e
+        const errorMsg = e?.toString() || "Failed to start UDP simulation streaming";
+        setSimUdpError(errorMsg);
+        throw e;
       }
     },
     [fetchActiveSimulationStreams],
-  )
+  );
 
   const stopSimulationUdp = useCallback(async () => {
     setSimUdpError(null)

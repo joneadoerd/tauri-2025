@@ -1,23 +1,14 @@
 // mod commands;
-mod commands_async;
 mod general;
 mod logger;
 mod packet;
-mod serial;
 pub mod simulation;
 mod simulation_state;
 mod storage;
 mod transport;
-mod zmq;
-mod zmq_server_tokio;
+
 use std::sync::Arc;
 
-use commands_async::{
-    disconnect,
-    // add_sub,  init_zmq, list_ports, list_subs, list_subs_with_status, remove_sub,
-    send_data,
-    AppState,
-};
 use general::{
     // commands::{
     //     list_connections, list_serial_ports, send_packet, start_connection, stop_connection,
@@ -34,18 +25,14 @@ use general::{
     //     stop_target_stream,
     // },
 };
-use tokio::sync::OnceCell;
 
-use crate::{general::sensor_udp_server::SharedSensorMap, transport::connection_manager::Manager};
+use crate::transport::connection_manager::Manager;
 // use crate::general::simulation_streaming::{
 //     map_udp_sensor_target, send_sensor_command, set_target_udp_addr, unmap_udp_sensor_target,
 // };
 use crate::simulation_state::command::{
     reset_simulation_timer, start_simulation_timer, stop_simulation_timer, SimTimerState,
 };
-
-// Global sensor map for UDP server
-pub static SENSOR_MAP: OnceCell<SharedSensorMap> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() {
@@ -55,9 +42,9 @@ async fn main() {
     // Create serial manager and simulation streamer
     // Assume you have a `Manager` initialized already:
     let serial_manager = Manager::new(); // Or however it's created
-                                                  // let simulation_streamer = Arc::new(SimulationStreamer::new(Arc::new(serial_manager.clone())));
-                                                  // Add sensor streamer
-                                                  // let sensor_streamer = Arc::new(UdpSensorStreamer::new(Arc::new(serial_manager.clone())));
+                                         // let simulation_streamer = Arc::new(SimulationStreamer::new(Arc::new(serial_manager.clone())));
+                                         // Add sensor streamer
+                                         // let sensor_streamer = Arc::new(UdpSensorStreamer::new(Arc::new(serial_manager.clone())));
 
     // Initialize and start UDP server before Tauri runs
     // let udp_socket = Arc::new(
@@ -98,7 +85,7 @@ async fn main() {
         .manage(serial_manager)
         // .manage(simulation_streamer)
         // .manage(sensor_streamer)
-        .manage(AppState::default())
+        // .manage(AppState::default())
         .manage(SimulationDataState::default())
         // .manage(transport::commands::SimulationDataStateManager::default())
         // .manage(client_addr_map)
@@ -112,7 +99,6 @@ async fn main() {
             // list_subs_with_status,
             // list_ports,
             // start_serial,
-            disconnect,
             transport::commands::start_connection,
             transport::commands::start_udp_connection,
             transport::commands::stop_connection,
@@ -155,7 +141,6 @@ async fn main() {
             storage::commands::list_log_files,
             storage::commands::get_logs_directory,
             storage::commands::get_app_root_directory,
-            send_data,
             simulation,
             get_simulation_data,
             clear_simulation_data,
@@ -163,7 +148,7 @@ async fn main() {
             stop_simulation_timer,
             reset_simulation_timer,
             // Add simulation streaming commands
-            // start_simulation_streaming,
+            // start_simulation_streaming,F
             // stop_simulation_streaming,
             // stop_target_stream,
             // get_active_simulation_streams,

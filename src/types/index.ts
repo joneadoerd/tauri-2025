@@ -124,11 +124,17 @@ export interface UdpShareParams {
 
 export interface SimulationUdpParams {
   /** Local address to bind to */
-  localAddr: string
+  localAddr: string;
   /** Remote address to send to */
-  remoteAddr: string
+  remoteAddr: string;
   /** Streaming interval in milliseconds */
-  intervalMs: number
+  intervalMs: number;
+  /** Origin latitude */
+  originLat: number;
+  /** Origin longitude */
+  originLon: number;
+  /** Origin altitude */
+  originAlt: number;
 }
 
 // Component Props Types

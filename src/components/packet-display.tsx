@@ -65,9 +65,38 @@ export function PacketDisplay({ data, packetCounts, onClearAll, onClearCurrent, 
         {isTargetPacket && (
           <div className="bg-blue-50 p-3 rounded border">
             <div className="font-bold text-blue-700 mb-1">TargetPacket</div>
-            <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-muted p-2 rounded">
-              {JSON.stringify(targetPacket, null, 2)}
-            </pre>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div><b>Target ID:</b> {targetPacket.target_id}</div>
+              <div><b>Time:</b> {targetPacket.time}</div>
+              {targetPacket.lla && (
+                <>
+                  <div><b>LLA.Lat:</b> {targetPacket.lla.lat}</div>
+                  <div><b>LLA.Lon:</b> {targetPacket.lla.lon}</div>
+                  <div><b>LLA.Alt:</b> {targetPacket.lla.alt}</div>
+                </>
+              )}
+              {targetPacket.ned && (
+                <>
+                  <div><b>NED.North:</b> {targetPacket.ned.north}</div>
+                  <div><b>NED.East:</b> {targetPacket.ned.east}</div>
+                  <div><b>NED.Down:</b> {targetPacket.ned.down}</div>
+                </>
+              )}
+              {targetPacket.ned_velocity && (
+                <>
+                  <div><b>NED Vel North:</b> {targetPacket.ned_velocity.north}</div>
+                  <div><b>NED Vel East:</b> {targetPacket.ned_velocity.east}</div>
+                  <div><b>NED Vel Down:</b> {targetPacket.ned_velocity.down}</div>
+                </>
+              )}
+              {targetPacket.origin && (
+                <>
+                  <div><b>Origin Lat:</b> {targetPacket.origin.lat}</div>
+                  <div><b>Origin Lon:</b> {targetPacket.origin.lon}</div>
+                  <div><b>Origin Alt:</b> {targetPacket.origin.alt}</div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -85,21 +114,12 @@ export function PacketDisplay({ data, packetCounts, onClearAll, onClearCurrent, 
                 targetPacketList.packets.map((tp: any, i: number) => (
                   <div key={i} className="bg-white border rounded p-2 text-xs">
                     <div className="flex flex-wrap gap-2">
-                      <span>
-                        <b>Target ID:</b> {tp.target_id}
-                      </span>
-                      <span>
-                        <b>Lat:</b> {tp.lat}
-                      </span>
-                      <span>
-                        <b>Lon:</b> {tp.lon}
-                      </span>
-                      <span>
-                        <b>Alt:</b> {tp.alt}
-                      </span>
-                      <span>
-                        <b>Time:</b> {tp.time}
-                      </span>
+                      <span><b>Target ID:</b> {tp.target_id}</span>
+                      <span><b>Time:</b> {tp.time}</span>
+                      {tp.lla && <><span><b>LLA.Lat:</b> {tp.lla.lat}</span><span><b>LLA.Lon:</b> {tp.lla.lon}</span><span><b>LLA.Alt:</b> {tp.lla.alt}</span></>}
+                      {tp.ned && <><span><b>NED.North:</b> {tp.ned.north}</span><span><b>NED.East:</b> {tp.ned.east}</span><span><b>NED.Down:</b> {tp.ned.down}</span></>}
+                      {tp.ned_velocity && <><span><b>NED Vel North:</b> {tp.ned_velocity.north}</span><span><b>NED Vel East:</b> {tp.ned_velocity.east}</span><span><b>NED Vel Down:</b> {tp.ned_velocity.down}</span></>}
+                      {tp.origin && <><span><b>Origin Lat:</b> {tp.origin.lat}</span><span><b>Origin Lon:</b> {tp.origin.lon}</span><span><b>Origin Alt:</b> {tp.origin.alt}</span></>}
                     </div>
                   </div>
                 ))}

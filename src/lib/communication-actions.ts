@@ -262,10 +262,13 @@ export async function startSimulationUdpStreaming(params: SimulationUdpParams): 
       localAddr: params.localAddr,
       remoteAddr: params.remoteAddr,
       intervalMs: params.intervalMs,
-    })
+      originLat: params.originLat,
+      originLon: params.originLon,
+      originAlt: params.originAlt,
+    });
   } catch (error) {
-    console.error("Failed to start simulation UDP streaming:", error)
-    throw new Error(`Failed to start simulation UDP streaming: ${error}`)
+    console.error("Failed to start simulation UDP streaming:", error);
+    throw new Error(`Failed to start simulation UDP streaming: ${error}`);
   }
 }
 
