@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Settings } from "lucide-react";
+import { Settings, Activity } from "lucide-react";
 import { useSerialConnections } from "@/hooks/use-serial-connections";
 import { usePacketData } from "@/hooks/use-packet-data";
 import { useUdpConnections } from "@/hooks/use-udp-connections";
@@ -14,7 +14,6 @@ import { useUdpTargets } from "@/hooks/use-udp-targets";
 import { useLogFiles } from "@/hooks/use-log-files";
 import { ConnectionForm } from "@/components/connection-form";
 import { PacketCounters } from "@/components/packet-counters";
-import { ConnectionList } from "@/components/connection-list";
 import { PacketDisplay } from "@/components/packet-display";
 import { UdpListeners } from "@/components/udp-config";
 import { UdpServerInit } from "@/components/udp-server-init";
@@ -26,6 +25,7 @@ import { LogFilesSection } from "@/components/log-files-section";
 import { DebugInfo } from "@/components/debug-info";
 import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export default function CommunicationMonitor() {
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -151,6 +151,34 @@ export default function CommunicationMonitor() {
     0
   );
 
+  // Function to open simulation config in a new window
+  const openSimulationConfigWindow = () => {
+    const label = "simulation-config";
+    const url = "/simulation-config"; // Adjust if using a different route
+    new WebviewWindow(label, {
+      url,
+      width: 1200,
+      height: 900,
+      title: "Simulation Configuration",
+      resizable: true,
+      center: true,
+    });
+  };
+
+  // Function to open connections page in a new window
+  const openConnectionsWindow = () => {
+    const label = "connections";
+    const url = "/connections";
+    new WebviewWindow(label, {
+      url,
+      width: 1400,
+      height: 1000,
+      title: "Connection Management",
+      resizable: true,
+      center: true,
+    });
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6">
       {/* Header Section */}
@@ -241,6 +269,12 @@ export default function CommunicationMonitor() {
             onStopUdpShare={stopUdpShare}
           />
 
+          {/* Active Shares Table */}
+          <ActiveSharesTable
+            allActiveShares={allActiveShares}
+            onStopShare={stopShare}
+          />
+
           {/* UDP Listeners */}
           <UdpListeners
             udpListeners={udpListeners}
@@ -255,20 +289,24 @@ export default function CommunicationMonitor() {
 
         {/* Right Column */}
         <div className="space-y-6">
-          {/* Simulation Configuration */}
+          {/* Configuration Buttons */}
           <div className="flex items-center gap-4">
-            <SimulationConfigDialog
-              onSimulationComplete={() => {
-                // Refresh UDP targets after simulation completion
-                fetchTotalUdpTargets();
-                console.log("Simulation completed successfully!");
-              }}
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={openSimulationConfigWindow}
             >
-              <Button variant="outline" className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                Simulation Config
-              </Button>
-            </SimulationConfigDialog>
+              <Settings className="h-4 w-4" />
+              Simulation Config
+            </Button>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={openConnectionsWindow}
+            >
+              <Activity className="h-4 w-4" />
+              Connection Management
+            </Button>
           </div>
 
           {/* Simulation Streaming */}
@@ -307,30 +345,7 @@ export default function CommunicationMonitor() {
         connectionCount={statistics.connectionCount}
       />
 
-      {/* Active Shares Table */}
-      <ActiveSharesTable
-        allActiveShares={allActiveShares}
-        onStopShare={stopShare}
-      />
-
       <Separator />
-
-      {/* Connection List */}
-      <ConnectionList
-        connections={connections}
-        connectionPacketTypeCounts={statistics.connectionPacketTypeCounts}
-        connectionPacketCounts={statistics.connectionPacketCounts}
-        logData={logData}
-        showLogData={showLogData}
-        onSendHeader={handleSendHeader}
-        onSendPayload={handleSendPayload}
-        onClearData={clearData}
-        onDisconnect={handleDisconnect}
-        onLoadLogData={loadLogData}
-        onToggleLogData={toggleLogData}
-        hasActiveShares={hasActiveShares}
-        getActiveSharesCount={getActiveSharesCount}
-      />
 
       {/* Packet Display */}
       <PacketDisplay

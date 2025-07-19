@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen, UnlistenFn } from "@tauri-apps/api/event"
 
 export interface ActiveShare {
   shareId: string
@@ -20,15 +21,16 @@ export interface UdpShare {
  * Custom hook for managing data sharing between connections
  *
  * Handles:
- * - Active share tracking
+ * - Active share tracking with real-time updates
  * - UDP target sharing
  * - Share lifecycle management
  * - Share status monitoring
+ * - Cross-window synchronization
  *
  * @returns Object containing share state and management functions
  *
  * @example
- * \`\`\`typescript
+ * ```typescript
  * const {
  *   allActiveShares,
  *   udpShareActive,
@@ -39,7 +41,7 @@ export interface UdpShare {
  *
  * // Start sharing UDP target
  * await startUdpShare("source-id", 123, "dest-id", 1000)
- * \`\`\`
+ * ```
  */
 export function useShares() {
   const [allActiveShares, setAllActiveShares] = useState<ActiveShare[]>([])
@@ -48,7 +50,9 @@ export function useShares() {
   const fetchAllActiveShares = useCallback(async () => {
     try {
       const res = await invoke<[string, string][]>("list_active_shares")
-      setAllActiveShares(res.map(([shareId, connectionId]) => ({ shareId, connectionId })))
+      const shares = res.map(([shareId, connectionId]) => ({ shareId, connectionId }))
+      setAllActiveShares(shares)
+      console.log("Fetched active shares:", shares)
     } catch (error) {
       console.error("Failed to fetch active shares:", error)
     }
@@ -61,6 +65,7 @@ export function useShares() {
         await fetchAllActiveShares()
         // Also update UDP shares if needed
         setUdpShareActive((prev) => prev.filter((s) => s.shareId !== shareId))
+        console.log(`Stopped share: ${shareId} from ${connectionId}`)
       } catch (error) {
         console.error("Failed to stop share:", error)
       }
@@ -88,6 +93,7 @@ export function useShares() {
 
         setUdpShareActive((prev) => [...prev, newShare])
         await fetchAllActiveShares()
+        console.log(`Started UDP share: ${shareId}`)
         return shareId
       } catch (error) {
         console.error("Failed to start UDP share:", error)
@@ -103,6 +109,7 @@ export function useShares() {
         await invoke("stop_share_to_connection", { shareId, connectionId: destId })
         setUdpShareActive((prev) => prev.filter((s) => s.shareId !== shareId))
         await fetchAllActiveShares()
+        console.log(`Stopped UDP share: ${shareId}`)
       } catch (error) {
         console.error("Failed to stop UDP share:", error)
         throw error
@@ -129,6 +136,47 @@ export function useShares() {
     return allActiveShares.length > 0
   }, [allActiveShares])
 
+  // Real-time updates for shares across all windows
+  useEffect(() => {
+    let unlistenFns: UnlistenFn[] = []
+
+    const setupEventListeners = async () => {
+      try {
+        // Listen for share events
+        const unlistenShareStarted = await listen("share_started", () => {
+          console.log("Share started event received")
+          fetchAllActiveShares()
+        })
+        
+        const unlistenShareStopped = await listen("share_stopped", () => {
+          console.log("Share stopped event received")
+          fetchAllActiveShares()
+        })
+
+        // Listen for connection events that might affect shares
+        const unlistenConnectionEvent = await listen("connection_event", () => {
+          console.log("Connection event received, refreshing shares")
+          fetchAllActiveShares()
+        })
+
+        unlistenFns = [unlistenShareStarted, unlistenShareStopped, unlistenConnectionEvent]
+      } catch (error) {
+        console.error("Failed to setup share event listeners:", error)
+      }
+    }
+
+    setupEventListeners()
+
+    // Fallback polling every 3 seconds
+    const pollInterval = setInterval(fetchAllActiveShares, 3000)
+
+    return () => {
+      unlistenFns.forEach(fn => fn())
+      clearInterval(pollInterval)
+    }
+  }, [fetchAllActiveShares])
+
+  // Initial fetch
   useEffect(() => {
     fetchAllActiveShares()
   }, [fetchAllActiveShares])

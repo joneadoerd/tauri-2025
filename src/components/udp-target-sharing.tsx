@@ -119,17 +119,6 @@ export function UdpTargetSharing({
       return
     }
 
-    // Check for duplicate share
-    const isDuplicate = udpShareActive.some(
-      (s) =>
-        s.sourceId === udpShareSourceId && s.targetId === udpShareSelectedTargetId && s.destId === udpShareDestConnId,
-    )
-
-    if (isDuplicate) {
-      setUdpShareError("This share is already active.")
-      return
-    }
-
     try {
       await onStartUdpShare(udpShareSourceId, udpShareSelectedTargetId, udpShareDestConnId, udpShareInterval)
     } catch (error: any) {
@@ -247,36 +236,6 @@ export function UdpTargetSharing({
           <div className="text-sm text-muted-foreground">
             <span className="font-medium">Latest targets received: </span>
             {udpShareTargets.map((t) => t.target_id).join(", ")}
-          </div>
-        )}
-
-        {/* Active UDP Shares */}
-        {udpShareActive.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-medium">Active UDP Shares</Label>
-              <Badge variant="secondary">{udpShareActive.length}</Badge>
-            </div>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {udpShareActive.map((share) => (
-                <div key={share.shareId} className="flex items-center justify-between p-2 bg-muted rounded">
-                  <div className="text-sm flex-1 min-w-0">
-                    <div className="font-mono text-xs truncate" title={share.shareId}>
-                      {share.shareId}
-                    </div>
-                    <div
-                      className="text-muted-foreground text-xs truncate"
-                      title={`Target ${share.targetId} → ${share.destId} (${share.interval}ms)`}
-                    >
-                      Target {share.targetId} → {truncateText(share.destId, 15)} ({share.interval}ms)
-                    </div>
-                  </div>
-                  <Button size="sm" variant="destructive" onClick={() => onStopUdpShare(share.shareId, share.destId)}>
-                    Stop
-                  </Button>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 

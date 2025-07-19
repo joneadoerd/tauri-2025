@@ -63,6 +63,7 @@ export function SimulationStreaming({
   const [originLat, setOriginLat] = useState(0.0);
   const [originLon, setOriginLon] = useState(0.0);
   const [originAlt, setOriginAlt] = useState(0.0);
+  const [stopped, setStopped] = useState(false);
 
   /**
    * Validates form inputs
@@ -76,6 +77,7 @@ export function SimulationStreaming({
     if (isStartingSimUdp || !isFormValid) return
 
     setIsStartingSimUdp(true)
+    setStopped(false)
     try {
       await onStartSimulationUdp(simLocalAddr, simRemoteAddr, simInterval, originLat, originLon, originAlt);
     } catch (error) {
@@ -94,6 +96,8 @@ export function SimulationStreaming({
     setIsStoppingSimUdp(true)
     try {
       await onStopSimulationUdp()
+      setStopped(true)
+      // Optionally, update status or clear other local state here
     } catch (error) {
       console.error("Failed to stop simulation UDP:", error)
     } finally {
@@ -228,6 +232,9 @@ export function SimulationStreaming({
               <Badge variant="secondary">
                 {activeSimulationStreams.length} Active Stream{activeSimulationStreams.length !== 1 ? "s" : ""}
               </Badge>
+            )}
+            {stopped && (
+              <Badge variant="destructive">Streaming Stopped</Badge>
             )}
           </div>
         )}

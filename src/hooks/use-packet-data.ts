@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { listen, Event, UnlistenFn } from "@tauri-apps/api/event"
 import type { Packet, SerialPacketEvent } from "@/gen/packet"
 import { getPacketStatistics, resetPacketCounters } from "@/app/actions/packet-statistics-actions"
@@ -29,17 +29,6 @@ export interface PacketStatistics {
   connectionPacketTypeCounts: Record<string, Record<string, number>>
 }
 
-/**
- * Unified hook for managing packet data and statistics using event emission
- * 
- * This hook:
- * - Listens to "serial_packet" events for real-time packet counting
- * - Provides centralized packet statistics across all connections
- * - Uses backend manager for packet counting instead of individual hooks
- * - Supports both serial and UDP connections
- * 
- * @returns Object containing packet data, statistics, and management functions
- */
 export function usePacketData() {
   const [data, setData] = useState<Record<string, PacketData[]>>({})
   const [packetCounts, setPacketCounts] = useState<Record<string, PacketCounts>>({})
@@ -51,59 +40,64 @@ export function usePacketData() {
     globalPacketTypeCounts: {},
     connectionPacketTypeCounts: {},
   })
-  const [processedPackets] = useState<Set<string>>(new Set())
 
-  // Fetch packet statistics from backend
+  // === Refs to store intermediate high-frequency data without triggering re-render
+  const dataBufferRef = useRef<Record<string, PacketData[]>>({})
+  const countBufferRef = useRef<Record<string, PacketCounts>>({})
+  const statsBufferRef = useRef<PacketStatistics>(statistics)
+  const processedPackets = useRef<Set<string>>(new Set())
+
   const fetchPacketStatistics = useCallback(async () => {
     try {
       const stats = await getPacketStatistics()
-
-      setStatistics(prev => ({
-        ...prev,
-        totalPacketsReceived: stats.total_received,
-        totalPacketsSent: stats.total_sent,
-        connectionCount: stats.connection_count,
-        connectionPacketCounts: stats.connection_counts,
-      }))
+      setStatistics((prev) => {
+        const updated = {
+          ...prev,
+          totalPacketsReceived: stats.total_received,
+          totalPacketsSent: stats.total_sent,
+          connectionCount: stats.connection_count,
+          connectionPacketCounts: stats.connection_counts,
+        }
+        statsBufferRef.current = updated
+        return updated
+      })
     } catch (error) {
       console.error("Failed to fetch packet statistics:", error)
     }
   }, [])
 
-  // Clear data for specific connection
   const clearData = useCallback((id: string) => {
     setData((prev) => {
-      const updated = { ...prev }
-      if (updated[id]) {
-        updated[id] = []
-      }
+      const updated = { ...prev, [id]: [] }
+      dataBufferRef.current[id] = []
       return updated
     })
 
     setPacketCounts((prev) => {
-      const updated = { ...prev }
-      if (updated[id]) {
-        updated[id] = {
-          count: 0,
-          lastReset: Date.now(),
-          headerCount: 0,
-          payloadCount: 0,
-          totalCount: 0,
-        }
+      const reset = {
+        count: 0,
+        lastReset: Date.now(),
+        headerCount: 0,
+        payloadCount: 0,
+        totalCount: 0,
       }
-      return updated
+      countBufferRef.current[id] = reset
+      return { ...prev, [id]: reset }
     })
 
-    setStatistics(prev => ({
-      ...prev,
-      connectionPacketTypeCounts: {
-        ...prev.connectionPacketTypeCounts,
-        [id]: {},
+    setStatistics((prev) => {
+      const updated = {
+        ...prev,
+        connectionPacketTypeCounts: {
+          ...prev.connectionPacketTypeCounts,
+          [id]: {},
+        },
       }
-    }))
+      statsBufferRef.current = updated
+      return updated
+    })
   }, [])
 
-  // Clear all packet data
   const clearAllData = useCallback(() => {
     setData({})
     setPacketCounts({})
@@ -115,45 +109,67 @@ export function usePacketData() {
       globalPacketTypeCounts: {},
       connectionPacketTypeCounts: {},
     })
+    dataBufferRef.current = {}
+    countBufferRef.current = {}
+    statsBufferRef.current = {
+      totalPacketsReceived: 0,
+      totalPacketsSent: 0,
+      connectionCount: 0,
+      connectionPacketCounts: {},
+      globalPacketTypeCounts: {},
+      connectionPacketTypeCounts: {},
+    }
   }, [])
 
-  // Remove connection data
   const removeConnectionData = useCallback((id: string) => {
     setData((prev) => {
       const updated = { ...prev }
       delete updated[id]
+      delete dataBufferRef.current[id]
       return updated
     })
 
     setPacketCounts((prev) => {
       const updated = { ...prev }
       delete updated[id]
+      delete countBufferRef.current[id]
       return updated
     })
 
-    setStatistics(prev => {
+    setStatistics((prev) => {
       const updated = { ...prev }
-      delete updated.connectionPacketTypeCounts[id]
       delete updated.connectionPacketCounts[id]
+      delete updated.connectionPacketTypeCounts[id]
+      statsBufferRef.current = updated
       return updated
     })
   }, [])
 
-  // Listen to serial_packet events for real-time updates
+  // Event listener
   useEffect(() => {
-    const unlistenAll: UnlistenFn[] = []
+    let isMounted = true
 
-    const unlisten = listen("serial_packet", (event: Event<SerialPacketEvent>) => {
+    const handlePacket = (event: Event<SerialPacketEvent>) => {
       const { id, packet } = event.payload
       if (!packet) return
 
       const now = Date.now()
-      const packetFingerprint = `${id}_${JSON.stringify(packet)}_${now}`
+      // Use a unique field in packet for deduplication if available, otherwise skip deduplication
+      let uniquePacketId: string | undefined = undefined
+      if (typeof packet === 'object' && packet !== null) {
+        if ('id' in packet && typeof (packet as any).id === 'string') {
+          uniquePacketId = `${id}_$ {(packet as any).id}`
+        }
+      }
+      if (uniquePacketId) {
+        if (processedPackets.current.has(uniquePacketId)) return
+        processedPackets.current.add(uniquePacketId)
+        // Prevent memory leak: clear set if too large
+        if (processedPackets.current.size > 10000) {
+          processedPackets.current.clear()
+        }
+      }
 
-      if (processedPackets.has(packetFingerprint)) return
-      processedPackets.add(packetFingerprint)
-
-      // Determine packet type
       let packetType = "other"
       const packetAny = packet as any
       if (packetAny.kind) {
@@ -165,91 +181,129 @@ export function usePacketData() {
         else if (packetAny.kind.TargetPacketList) packetType = "TargetPacketList"
       }
 
-      // Update global packet type counter
-      setStatistics(prev => ({
-        ...prev,
+      // === Buffer packet data (queue new packets)
+      const packetId = `${id}_${now}_${Math.random().toString(36).substr(2, 9)}`;
+      const newPacket: PacketData = { packet, timestamp: now, id: packetId, packetType };
+      if (!dataBufferRef.current[id]) dataBufferRef.current[id] = [];
+      dataBufferRef.current[id].push(newPacket);
+
+      // === Buffer packet counts
+      const counts = countBufferRef.current[id] || {
+        count: 0,
+        lastReset: now,
+        headerCount: 0,
+        payloadCount: 0,
+        totalCount: 0,
+      }
+
+      const updatedCounts: PacketCounts = {
+        ...counts,
+        count: counts.count + 1,
+        headerCount: counts.headerCount + (packetType === "header" ? 1 : 0),
+        payloadCount: counts.payloadCount + (packetType === "payload" ? 1 : 0),
+        totalCount: counts.totalCount + 1,
+      }
+
+      countBufferRef.current[id] = updatedCounts
+
+      // === Buffer statistics
+      const stats = statsBufferRef.current;
+      // Determine direction (received or sent). If not available, default to received.
+      let isSent = false;
+      if (typeof packet === 'object' && packet !== null) {
+        if ('direction' in packet && (packet as any).direction === 'sent') {
+          isSent = true;
+        }
+      }
+      // Update per-connection counts
+      const prevConnStats = stats.connectionPacketCounts[id] || { received: 0, sent: 0 };
+      const newConnStats = {
+        received: prevConnStats.received + (isSent ? 0 : 1),
+        sent: prevConnStats.sent + (isSent ? 1 : 0),
+      };
+      const newConnectionPacketCounts = {
+        ...stats.connectionPacketCounts,
+        [id]: newConnStats,
+      };
+      // Update connection count (number of keys)
+      const newConnectionCount = Object.keys(newConnectionPacketCounts).length;
+      // Update type counters for both sent and received
+      const prevTypeCount = stats.globalPacketTypeCounts[packetType] || 0;
+      const prevConnTypeCount = (stats.connectionPacketTypeCounts[id]?.[packetType] || 0);
+      statsBufferRef.current = {
+        ...stats,
+        totalPacketsReceived: (stats.totalPacketsReceived || 0) + (isSent ? 0 : 1),
+        totalPacketsSent: (stats.totalPacketsSent || 0) + (isSent ? 1 : 0),
+        connectionPacketCounts: newConnectionPacketCounts,
+        connectionCount: newConnectionCount,
         globalPacketTypeCounts: {
-          ...prev.globalPacketTypeCounts,
-          [packetType]: (prev.globalPacketTypeCounts[packetType] || 0) + 1,
+          ...stats.globalPacketTypeCounts,
+          [packetType]: prevTypeCount + 1,
         },
         connectionPacketTypeCounts: {
-          ...prev.connectionPacketTypeCounts,
+          ...stats.connectionPacketTypeCounts,
           [id]: {
-            ...(prev.connectionPacketTypeCounts[id] || {}),
-            [packetType]: (prev.connectionPacketTypeCounts[id]?.[packetType] || 0) + 1,
+            ...(stats.connectionPacketTypeCounts[id] || {}),
+            [packetType]: prevConnTypeCount + 1,
           },
         },
-      }))
+      };
+    }
 
-      // Update packet data
-      setData((prev) => {
-        const currentPackets = prev[id] || []
-        const packetId = `${id}_${now}_${Math.random().toString(36).substr(2, 9)}`
-        const newPacket: PacketData = {
-          packet,
-          timestamp: now,
-          id: packetId,
-          packetType,
-        }
-        const updatedPackets = [...currentPackets, newPacket].slice(-100)
-        return { ...prev, [id]: updatedPackets }
-      })
+    const startListening = async () => {
+      const unlisten = await listen("serial_packet", handlePacket)
+      return unlisten
+    }
 
-      // Update packet counts
-      setPacketCounts((prev) => {
-        const current = prev[id] || {
-          count: 0,
-          lastReset: now,
-          headerCount: 0,
-          payloadCount: 0,
-          totalCount: 0,
-        }
-        const timeSinceReset = now - current.lastReset
-
-        if (timeSinceReset >= 1000) {
-          return {
-            ...prev,
-            [id]: {
-              count: 1,
-              lastReset: now,
-              headerCount: packetType === "header" ? 1 : 0,
-              payloadCount: packetType === "payload" ? 1 : 0,
-              totalCount: current.totalCount + 1,
-            },
-          }
-        } else {
-          return {
-            ...prev,
-            [id]: {
-              count: current.count + 1,
-              lastReset: current.lastReset,
-              headerCount: current.headerCount + (packetType === "header" ? 1 : 0),
-              payloadCount: current.payloadCount + (packetType === "payload" ? 1 : 0),
-              totalCount: current.totalCount + 1,
-            },
-          }
-        }
-      })
+    let unlistenFn: UnlistenFn
+    startListening().then(unlisten => {
+      if (isMounted) unlistenFn = unlisten
     })
 
-    unlisten.then((un) => unlistenAll.push(un))
-    return () => unlistenAll.forEach((fn) => fn())
-  }, [processedPackets])
+    return () => {
+      isMounted = false
+      unlistenFn?.()
+    }
+  }, [])
 
-  // Periodically fetch packet statistics from backend
+  // Periodically flush buffered data into React state using setInterval (minimize re-renders)
+  useEffect(() => {
+    let isMounted = true;
+    const FLUSH_INTERVAL = 50; // ms, adjust as needed
+    const interval = setInterval(() => {
+      if (!isMounted) return;
+      let hasData = false;
+      setData(prev => {
+        const updated = { ...prev };
+        for (const id in dataBufferRef.current) {
+          if (dataBufferRef.current[id].length > 0) {
+            updated[id] = [...(prev[id] || []), ...dataBufferRef.current[id]];
+            updated[id] = updated[id].slice(-5000);
+            dataBufferRef.current[id] = [];
+            hasData = true;
+          }
+        }
+        return updated;
+      });
+      setPacketCounts({ ...countBufferRef.current });
+      setStatistics({ ...statsBufferRef.current });
+    }, FLUSH_INTERVAL);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     fetchPacketStatistics()
-    const interval = setInterval(fetchPacketStatistics, 1000) // Update every second
+    const interval = setInterval(fetchPacketStatistics, 1000)
     return () => clearInterval(interval)
   }, [fetchPacketStatistics])
 
-  // Reset all packet counters
   const resetCounters = useCallback(async () => {
     try {
       await resetPacketCounters()
-      // Clear frontend data after reset
       clearAllData()
-      // Refresh statistics
       await fetchPacketStatistics()
     } catch (error) {
       console.error("Failed to reset packet counters:", error)
