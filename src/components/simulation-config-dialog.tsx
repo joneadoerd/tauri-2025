@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import {
   Table,
@@ -205,336 +206,341 @@ export function SimulationConfigDialog({ onSimulationComplete, children }: Simul
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
-      <DialogContent className="max-h-[95vh] w-[95vw] min-w-[1200px] max-w-none overflow-y-auto">
+      <DialogContent className="max-h-[95vh] w-full sm:w-[95vw] sm:max-w-5xl sm:min-w-[600px] max-w-none overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
             Simulation Configuration
           </DialogTitle>
+          <DialogDescription>
+            Configure simulation parameters, targets, and waypoints. Save the initial state before running the simulation.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
-          {/* Simulation Parameters */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Simulation Parameters</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-4 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="timeStep">Time Step</Label>
-                <Input
-                  id="timeStep"
-                  type="number"
-                  step="any"
-                  value={timeStep}
-                  onChange={(e) => setTimeStep(Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="maxTime">Max Time</Label>
-                <Input
-                  id="maxTime"
-                  type="number"
-                  step="any"
-                  value={maxTime}
-                  onChange={(e) => setMaxTime(Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Total Targets</Label>
-                <div className="text-2xl font-bold text-primary">{targets.length}</div>
-              </div>
-              <div className="space-y-2">
-                <Label>Total Waypoints</Label>
-                <div className="text-2xl font-bold text-primary">
-                  {targets.reduce((sum, target) => sum + target.waypoints.length, 0)}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Targets Configuration */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TargetIcon className="h-5 w-5" />
-                Targets Configuration
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {targets.map((target, tidx) => (
-                <div key={tidx} className="border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h4 className="font-semibold text-lg">Target {target.id}</h4>
-                      <Badge variant="outline">
-                        {target.waypoints.length} waypoint{target.waypoints.length !== 1 ? "s" : ""}
-                      </Badge>
-                    </div>
-                    <div className="flex gap-2">
-                      {targets.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => removeTarget(tidx)}
-                        >
-                          Remove Target
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Initial State */}
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Initial Position</Label>
-                        <div className="grid grid-cols-3 gap-2">
-                          <Input
-                            placeholder="Lat"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.lat || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "lat", Number(e.target.value))
-                            }
-                          />
-                          <Input
-                            placeholder="Lon"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.lon || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "lon", Number(e.target.value))
-                            }
-                          />
-                          <Input
-                            placeholder="Alt"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.alt || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "alt", Number(e.target.value))
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Initial Velocity</Label>
-                        <Input
-                          placeholder="Velocity"
-                          type="number"
-                          step="any"
-                          value={target.init_state?.vt || 0}
-                          onChange={(e) =>
-                            handleInitStateChange(tidx, "vt", Number(e.target.value))
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Initial Power</Label>
-                        <Input
-                          placeholder="Power"
-                          type="number"
-                          step="any"
-                          value={target.init_state?.pow || 0}
-                          onChange={(e) =>
-                            handleInitStateChange(tidx, "pow", Number(e.target.value))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Initial Angles</Label>
-                        <div className="grid grid-cols-3 gap-2">
-                          <Input
-                            placeholder="Alpha"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.alpha || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "alpha", Number(e.target.value))
-                            }
-                          />
-                          <Input
-                            placeholder="Beta"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.beta || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "beta", Number(e.target.value))
-                            }
-                          />
-                          <Input
-                            placeholder="Psi"
-                            type="number"
-                            step="any"
-                            value={target.init_state?.psi || 0}
-                            onChange={(e) =>
-                              handleInitStateChange(tidx, "psi", Number(e.target.value))
-                            }
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Waypoints */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-base font-medium">Waypoints ({target.waypoints.length})</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => addWaypoint(tidx)}
-                      >
-                        Add Waypoint
-                      </Button>
-                    </div>
-                    <div className="border rounded-lg overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-12">#</TableHead>
-                            <TableHead>Latitude</TableHead>
-                            <TableHead>Longitude</TableHead>
-                            <TableHead>Altitude</TableHead>
-                            <TableHead className="w-24">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {target.waypoints.map((waypoint, widx) => (
-                            <TableRow key={widx}>
-                              <TableCell className="font-medium">{widx + 1}</TableCell>
-                              <TableCell>
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={waypoint.lat}
-                                  onChange={(e) =>
-                                    handleWaypointChange(tidx, widx, "lat", Number(e.target.value))
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={waypoint.lon}
-                                  onChange={(e) =>
-                                    handleWaypointChange(tidx, widx, "lon", Number(e.target.value))
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={waypoint.alt}
-                                  onChange={(e) =>
-                                    handleWaypointChange(tidx, widx, "alt", Number(e.target.value))
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => removeWaypoint(tidx, widx)}
-                                  disabled={target.waypoints.length <= 1}
-                                >
-                                  Remove
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <div className="flex items-center justify-center pt-4">
-                <Button type="button" variant="outline" onClick={addTarget} className="flex items-center gap-2">
-                  <TargetIcon className="h-4 w-4" />
-                  Add Target
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Action Buttons */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Simulation Actions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-4 items-center justify-center">
-                <Button
-                  type="button"
-                  onClick={saveInitState}
-                  variant="outline"
-                  className="flex items-center gap-2 min-w-[140px]"
-                >
-                  <Save className="h-4 w-4" />
-                  Save Init State
-                </Button>
-                <Button
-                  type="button"
-                  onClick={runSimulation}
-                  disabled={!savedInitState || isRunning}
-                  className="flex items-center gap-2 min-w-[140px]"
-                >
-                  <Play className="h-4 w-4" />
-                  {isRunning ? "Running..." : "Run Simulation"}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={clearSimulation}
-                  variant="destructive"
-                  size="sm"
-                  className="min-w-[100px]"
-                >
-                  Clear Data
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Status Display */}
-          {(simStatus || savedInitState) && (
+        {open && (
+          <div className="flex flex-col gap-6">
+            {/* Simulation Parameters */}
             <Card>
-              <CardContent className="pt-6">
-                {simStatus && (
-                  <div className="p-3 bg-blue-50 rounded border mb-3">
-                    <div className="text-sm font-medium text-blue-700">{simStatus}</div>
+              <CardHeader>
+                <CardTitle>Simulation Parameters</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-4 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="timeStep">Time Step</Label>
+                  <Input
+                    id="timeStep"
+                    type="number"
+                    step="any"
+                    value={timeStep}
+                    onChange={(e) => setTimeStep(Number(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxTime">Max Time</Label>
+                  <Input
+                    id="maxTime"
+                    type="number"
+                    step="any"
+                    value={maxTime}
+                    onChange={(e) => setMaxTime(Number(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Total Targets</Label>
+                  <div className="text-2xl font-bold text-primary">{targets.length}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Total Waypoints</Label>
+                  <div className="text-2xl font-bold text-primary">
+                    {targets.reduce((sum, target) => sum + target.waypoints.length, 0)}
                   </div>
-                )}
-
-                {/* Saved State Indicator */}
-                {savedInitState && (
-                  <div className="flex items-center gap-3">
-                    <Badge variant="secondary" className="flex items-center gap-1">
-                      <Save className="h-3 w-3" />
-                      Initial State Saved
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      {savedInitState.targets.length} target{savedInitState.targets.length !== 1 ? "s" : ""} configured
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      • {savedInitState.targets.reduce((sum, target) => sum + target.waypoints.length, 0)} total waypoints
-                    </span>
-                  </div>
-                )}
+                </div>
               </CardContent>
             </Card>
-          )}
-        </div>
+
+            {/* Targets Configuration */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TargetIcon className="h-5 w-5" />
+                  Targets Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {targets.map((target, tidx) => (
+                  <div key={tidx} className="border rounded-lg p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <h4 className="font-semibold text-lg">Target {target.id}</h4>
+                        <Badge variant="outline">
+                          {target.waypoints.length} waypoint{target.waypoints.length !== 1 ? "s" : ""}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2">
+                        {targets.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => removeTarget(tidx)}
+                          >
+                            Remove Target
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Initial State */}
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label>Initial Position</Label>
+                          <div className="grid grid-cols-3 gap-2">
+                            <Input
+                              placeholder="Lat"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.lat || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "lat", Number(e.target.value))
+                              }
+                            />
+                            <Input
+                              placeholder="Lon"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.lon || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "lon", Number(e.target.value))
+                              }
+                            />
+                            <Input
+                              placeholder="Alt"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.alt || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "alt", Number(e.target.value))
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Initial Velocity</Label>
+                          <Input
+                            placeholder="Velocity"
+                            type="number"
+                            step="any"
+                            value={target.init_state?.vt || 0}
+                            onChange={(e) =>
+                              handleInitStateChange(tidx, "vt", Number(e.target.value))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label>Initial Power</Label>
+                          <Input
+                            placeholder="Power"
+                            type="number"
+                            step="any"
+                            value={target.init_state?.pow || 0}
+                            onChange={(e) =>
+                              handleInitStateChange(tidx, "pow", Number(e.target.value))
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Initial Angles</Label>
+                          <div className="grid grid-cols-3 gap-2">
+                            <Input
+                              placeholder="Alpha"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.alpha || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "alpha", Number(e.target.value))
+                              }
+                            />
+                            <Input
+                              placeholder="Beta"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.beta || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "beta", Number(e.target.value))
+                              }
+                            />
+                            <Input
+                              placeholder="Psi"
+                              type="number"
+                              step="any"
+                              value={target.init_state?.psi || 0}
+                              onChange={(e) =>
+                                handleInitStateChange(tidx, "psi", Number(e.target.value))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Waypoints */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-base font-medium">Waypoints ({target.waypoints.length})</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => addWaypoint(tidx)}
+                        >
+                          Add Waypoint
+                        </Button>
+                      </div>
+                      <div className="border rounded-lg overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-12">#</TableHead>
+                              <TableHead>Latitude</TableHead>
+                              <TableHead>Longitude</TableHead>
+                              <TableHead>Altitude</TableHead>
+                              <TableHead className="w-24">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {target.waypoints.map((waypoint, widx) => (
+                              <TableRow key={widx}>
+                                <TableCell className="font-medium">{widx + 1}</TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    value={waypoint.lat}
+                                    onChange={(e) =>
+                                      handleWaypointChange(tidx, widx, "lat", Number(e.target.value))
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    value={waypoint.lon}
+                                    onChange={(e) =>
+                                      handleWaypointChange(tidx, widx, "lon", Number(e.target.value))
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    value={waypoint.alt}
+                                    onChange={(e) =>
+                                      handleWaypointChange(tidx, widx, "alt", Number(e.target.value))
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => removeWaypoint(tidx, widx)}
+                                    disabled={target.waypoints.length <= 1}
+                                  >
+                                    Remove
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-center pt-4">
+                  <Button type="button" variant="outline" onClick={addTarget} className="flex items-center gap-2">
+                    <TargetIcon className="h-4 w-4" />
+                    Add Target
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Action Buttons */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Simulation Actions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-4 items-center justify-center">
+                  <Button
+                    type="button"
+                    onClick={saveInitState}
+                    variant="outline"
+                    className="flex items-center gap-2 min-w-[140px]"
+                  >
+                    <Save className="h-4 w-4" />
+                    Save Init State
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={runSimulation}
+                    disabled={!savedInitState || isRunning}
+                    className="flex items-center gap-2 min-w-[140px]"
+                  >
+                    <Play className="h-4 w-4" />
+                    {isRunning ? "Running..." : "Run Simulation"}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={clearSimulation}
+                    variant="destructive"
+                    size="sm"
+                    className="min-w-[100px]"
+                  >
+                    Clear Data
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Status Display */}
+            {(simStatus || savedInitState) && (
+              <Card>
+                <CardContent className="pt-6">
+                  {simStatus && (
+                    <div className="p-3 bg-blue-50 rounded border mb-3">
+                      <div className="text-sm font-medium text-blue-700">{simStatus}</div>
+                    </div>
+                  )}
+
+                  {/* Saved State Indicator */}
+                  {savedInitState && (
+                    <div className="flex items-center gap-3">
+                      <Badge variant="secondary" className="flex items-center gap-1">
+                        <Save className="h-3 w-3" />
+                        Initial State Saved
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        {savedInitState.targets.length} target{savedInitState.targets.length !== 1 ? "s" : ""} configured
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        • {savedInitState.targets.reduce((sum, target) => sum + target.waypoints.length, 0)} total waypoints
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
