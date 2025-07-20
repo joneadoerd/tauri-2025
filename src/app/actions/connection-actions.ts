@@ -7,6 +7,7 @@ import {
   setUdpRemoteAddress,
 } from "@/lib/communication-actions"
 import type { SerialConnectionParams, UdpConnectionParams, Connection } from "@/types"
+import { generateShortId } from '@/lib/utils';
 
 /**
  * Establishes a serial connection with error handling
@@ -26,7 +27,8 @@ import type { SerialConnectionParams, UdpConnectionParams, Connection } from "@/
  */
 export async function connectToSerial(params: SerialConnectionParams): Promise<string> {
   try {
-    const connectionId = await startSerialConnection(params)
+    const id = params.id || generateShortId('serial');
+    const connectionId = await startSerialConnection({ ...params, id });
     console.log(`Serial connection established: ${connectionId}`)
     return connectionId
   } catch (error) {
@@ -51,7 +53,8 @@ export async function connectToSerial(params: SerialConnectionParams): Promise<s
  */
 export async function connectToUdp(params: UdpConnectionParams): Promise<string> {
   try {
-    const connectionId = await startUdpConnection(params)
+    const id = params.id || generateShortId('udp');
+    const connectionId = await startUdpConnection({ ...params, id });
     console.log(`UDP connection established: ${connectionId}`)
     return connectionId
   } catch (error) {
@@ -116,20 +119,20 @@ export async function initializeComPorts(): Promise<string[]> {
   try {
     // Initialize COM3
     const com3Id = await connectToSerial({
-      prefix: "com3_id",
+      id: generateShortId('serial'),
       port: "COM3",
       baud: 115200,
       packetType: "Header",
-    })
+    });
     connectionIds.push(com3Id)
 
     // Initialize COM6
     const com6Id = await connectToSerial({
-      prefix: "com6_id",
+      id: generateShortId('serial'),
       port: "COM6",
       baud: 115200,
       packetType: "Header",
-    })
+    });
     connectionIds.push(com6Id)
 
     console.log("COM ports initialized successfully")
@@ -169,8 +172,8 @@ export async function setupUdpPair(addressA: string, addressB: string): Promise<
 
   try {
     // Start both UDP connections
-    connAId = await connectToUdp({ prefix: "udpA", localAddr: addressA })
-    connBId = await connectToUdp({ prefix: "udpB", localAddr: addressB })
+    connAId = await connectToUdp({ id: generateShortId('udp'), localAddr: addressA });
+    connBId = await connectToUdp({ id: generateShortId('udp'), localAddr: addressB });
 
     // Configure bidirectional communication
     await setUdpRemoteAddress(connAId, addressB)

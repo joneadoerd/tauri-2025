@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { startUdpConnection, listConnections, setUdpRemoteAddress } from "@/lib/communication-actions"
 import { isValidAddress } from "@/utils/validation-utils"
 import type { BaseComponentProps } from "@/types"
+import { generateShortId } from '@/lib/utils';
 
 /**
  * Props for UdpServerInit component
@@ -61,8 +62,8 @@ export function UdpServerInit({ onRefreshConnections, className }: UdpServerInit
     try {
       // Start both UDP servers
       await Promise.all([
-        startUdpConnection({ prefix: "udpA", localAddr: initA }),
-        startUdpConnection({ prefix: "udpB", localAddr: initB }),
+        startUdpConnection({ id: generateShortId('udp'), localAddr: initA }),
+        startUdpConnection({ id: generateShortId('udp'), localAddr: initB }),
       ])
 
       // Refresh connections to get the new connection IDs

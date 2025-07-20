@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { generateShortId } from '@/lib/utils';
 
 export interface UdpListener {
   id: string
@@ -41,10 +42,11 @@ export function useUdpConnections() {
 
   const startUdpConnection = useCallback(async (localAddr: string) => {
     try {
+      const id = generateShortId('udp');
       await invoke("start_udp_connection", {
-        prefix: "udp",
+        id,
         localAddr,
-      })
+      });
       setUdpStatus("UDP connection started")
       return true
     } catch (e: any) {

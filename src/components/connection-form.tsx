@@ -10,18 +10,13 @@ import { Activity, RefreshCw } from "lucide-react"
 import { truncateText } from "@/utils/text-utils"
 import { isValidBaudRate } from "@/utils/validation-utils"
 import type { ConnectionFormProps } from "@/types"
+import { generateShortId } from '@/lib/utils';
 
-/**
- * Available ID prefixes for serial connections
- */
-const ID_PREFIXES = ["COM", "USB", "UART", "DEV"] as const
 
 /**
  * Form state interface for connection parameters
  */
 interface ConnectionFormState {
-  /** Connection ID prefix */
-  id: string
   /** Selected serial port */
   port: string
   /** Baud rate for communication */
@@ -60,7 +55,6 @@ export function ConnectionForm({
   className,
 }: ConnectionFormProps) {
   const [form, setForm] = useState<ConnectionFormState>({
-    id: "",
     port: "",
     baud: "115200",
   })
@@ -69,7 +63,6 @@ export function ConnectionForm({
    * Handles form submission to establish connection
    */
   const handleConnect = async () => {
-    const prefix = form.id || ID_PREFIXES[0]
     const baudRate = Number.parseInt(form.baud, 10)
 
     if (!isValidBaudRate(baudRate)) {
@@ -78,7 +71,8 @@ export function ConnectionForm({
     }
 
     try {
-      await onConnect(prefix, form.port, baudRate, "Header")
+      const id = generateShortId('serial');
+      await onConnect(id, form.port, baudRate, "Header")
     } catch (error) {
       console.error("Failed to connect:", error)
     }
@@ -122,27 +116,6 @@ export function ConnectionForm({
       </CardHeader>
       <CardContent>
         <div className="grid md:grid-cols-4 gap-4">
-          {/* ID Prefix Selection */}
-          <div className="flex flex-col">
-            <Label htmlFor="id-prefix">ID Prefix</Label>
-            <Select value={form.id} onValueChange={(v) => updateForm("id", v)}>
-              <SelectTrigger id="id-prefix">
-                <SelectValue placeholder="Select ID Prefix" />
-              </SelectTrigger>
-              <SelectContent>
-                <div className="flex flex-col">
-                  {ID_PREFIXES.map((prefix) => (
-                    <SelectItem key={prefix} value={prefix}>
-                      <div className="flex items-center">
-                        <span className="font-medium">{prefix}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </div>
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Port Selection */}
           <div className="flex flex-col">
             <Label htmlFor="port-select">Port</Label>

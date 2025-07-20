@@ -94,21 +94,21 @@ export interface SimulationResultList {
 
 // Action Types
 export interface SerialConnectionParams {
-  /** Connection prefix/identifier */
-  prefix: string
+  /** Optional connection id */
+  id?: string;
   /** Serial port name */
-  port: string
+  port: string;
   /** Baud rate */
-  baud: number
+  baud: number;
   /** Packet type to handle */
-  packetType: string
+  packetType: string;
 }
 
 export interface UdpConnectionParams {
-  /** Connection prefix/identifier */
-  prefix: string
+  /** Optional connection id */
+  id?: string;
   /** Local address to bind to */
-  localAddr: string
+  localAddr: string;
 }
 
 export interface UdpShareParams {

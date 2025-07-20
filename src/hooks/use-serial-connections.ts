@@ -9,6 +9,7 @@ import {
   disconnectAllConnections,
 } from "@/lib/communication-actions"
 import type { Connection, SerialConnectionParams } from "@/types"
+import { generateShortId } from '@/lib/utils';
 
 /**
  * Custom hook for managing serial connections
@@ -72,10 +73,11 @@ export function useSerialConnections() {
    * @throws Error if connection fails
    */
   const connect = useCallback(
-    async (prefix: string, port: string, baud: number, packetType: string) => {
-      const params: SerialConnectionParams = { prefix, port, baud, packetType }
-      await startSerialConnection(params)
-      await refreshConnections()
+    async (_prefix: string, port: string, baud: number, packetType: string) => {
+      const id = generateShortId('serial');
+      const params: SerialConnectionParams = { id, port, baud, packetType };
+      await startSerialConnection(params);
+      await refreshConnections();
     },
     [refreshConnections],
   )

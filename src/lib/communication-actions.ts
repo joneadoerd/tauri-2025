@@ -8,6 +8,7 @@ import type {
   SimulationResultList,
 } from "@/types"
 import type { Packet } from "@/gen/packet"
+import { generateShortId } from './utils';
 
 export interface PacketStatistics {
   total_received: number
@@ -57,15 +58,16 @@ export async function listConnections(): Promise<Connection[]> {
  */
 export async function startSerialConnection(params: SerialConnectionParams): Promise<string> {
   try {
-    return await invoke<string>("start_connection", {
-      prefix: params.prefix,
+    const id = params.id || generateShortId('serial');
+    return await invoke<string>('start_connection', {
+      id,
       port: params.port,
       baud: params.baud,
       packetType: params.packetType,
-    })
+    });
   } catch (error) {
-    console.error("Failed to start serial connection:", error)
-    throw new Error(`Failed to start serial connection: ${error}`)
+    console.error('Failed to start serial connection:', error);
+    throw new Error(`Failed to start serial connection: ${error}`);
   }
 }
 
@@ -76,13 +78,14 @@ export async function startSerialConnection(params: SerialConnectionParams): Pro
  */
 export async function startUdpConnection(params: UdpConnectionParams): Promise<string> {
   try {
-    return await invoke<string>("start_udp_connection", {
-      prefix: params.prefix,
+    const id = params.id || generateShortId('udp');
+    return await invoke<string>('start_udp_connection', {
+      id,
       localAddr: params.localAddr,
-    })
+    });
   } catch (error) {
-    console.error("Failed to start UDP connection:", error)
-    throw new Error(`Failed to start UDP connection: ${error}`)
+    console.error('Failed to start UDP connection:', error);
+    throw new Error(`Failed to start UDP connection: ${error}`);
   }
 }
 

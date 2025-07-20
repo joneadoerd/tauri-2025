@@ -26,14 +26,17 @@ import { LogFilesSection } from "@/components/log-files-section";
 import { DebugInfo } from "@/components/debug-info";
 import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions";
 import { ensureDefaultLogDirectory, setLogDirectory } from "@/lib/log-actions";
+import { listen } from "@tauri-apps/api/event";
+import { Loader2 } from "lucide-react";
 
 
 export default function CommunicationMonitor() {
+  const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [logSaveDir, setLogSaveDir] = useState<string | null>(null);
 
-  // Custom hooks
+  // Custom hooks (always called, even if loading)
   const {
     ports,
     connections,
@@ -175,6 +178,28 @@ export default function CommunicationMonitor() {
   useEffect(() => {
     ensureDefaultLogDirectory();
   }, []);
+
+  useEffect(() => {
+    // Listen for the store_loaded event from backend
+    const unlistenPromise = listen("store_loaded", () => {
+      setLoading(false);
+    });
+    // Optionally: set a timeout fallback in case event is missed
+    const fallback = setTimeout(() => setLoading(false), 5000);
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+      clearTimeout(fallback);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="animate-spin w-10 h-10 mr-3 text-blue-600" />
+        <span className="text-lg font-semibold text-blue-700">Loading app data...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6">
