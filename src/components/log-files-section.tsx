@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { truncateText } from "@/utils/text-utils"
 import type { BaseComponentProps } from "@/types"
 
+import { useCallback } from 'react';
+import { getLogsDirectory } from '@/lib/log-actions';
+import { openPath } from '@tauri-apps/plugin-opener';
 /**
  * Props for LogFilesSection component
  */
@@ -40,6 +43,16 @@ interface LogFilesSectionProps extends BaseComponentProps {
  * ```
  */
 export function LogFilesSection({ logFiles, onLoadLogFiles, onClearLogFiles, className }: LogFilesSectionProps) {
+  // Handler to open a log file in the system default app
+  const handleOpenFile = useCallback(async (file: string) => {
+    try {
+      const dir = await getLogsDirectory();
+      const fullPath = `${dir.replace(/\\$/, '')}/${file}`;
+      await openPath(fullPath);
+    } catch (err) {
+      alert('Failed to open file: ' + err);
+    }
+  }, []);
   return (
     <Card className={className}>
       <CardHeader>
@@ -67,7 +80,8 @@ export function LogFilesSection({ logFiles, onLoadLogFiles, onClearLogFiles, cla
               {logFiles.map((file) => (
                 <div
                   key={file}
-                  className="flex items-center gap-2 p-2 bg-muted rounded hover:bg-muted/80 transition-colors"
+                  className="flex items-center gap-2 p-2 bg-muted rounded hover:bg-muted/80 transition-colors cursor-pointer"
+                  onClick={() => handleOpenFile(file)}
                 >
                   <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
                   <span className="font-mono text-sm text-blue-700 truncate" title={file}>

@@ -4,7 +4,26 @@
   "description": "enables the default permissions",
   "windows": ["main"],
   "permissions": [
-    "core:default"
-    
+    "core:default",
+    "dialog:allow-open",
+    "dialog:default",
+    "fs:allow-mkdir",
+    "fs:allow-write",
+    "fs:allow-read",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "identifier": "logs-appdata-logs", "path": "$APPLOCALDATA/logs/*" },
+        { "path": "$APPLOCALDATA/*" }
+      ]
+    },
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "identifier": "logs-appdata-logs", "path": "$APPLOCALDATA/logs/*" },
+        { "path": "$APPLOCALDATA/*" }
+      ]
+    }
   ]
 }

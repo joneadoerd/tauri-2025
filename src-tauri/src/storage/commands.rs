@@ -1,5 +1,7 @@
 use std::{env, path::Path};
 
+use crate::storage::file_logger::LOG_DIR;
+
 fn get_app_root() -> std::path::PathBuf {
     if let Ok(exe_path) = env::current_exe() {
         if let Some(parent) = exe_path.parent() {
@@ -30,10 +32,16 @@ pub async fn read_log_file(connection_id: String) -> Result<Vec<String>, String>
 
 #[tauri::command]
 pub async fn list_log_files() -> Result<Vec<String>, String> {
-    // Get Tauri app root directory
-    let app_root = get_app_root();
-
-    let log_dir = app_root.join("logs");
+    // Use user-selected log directory if set, otherwise default to app root logs
+    let log_dir = {
+        let log_dir_guard = LOG_DIR.lock().unwrap();
+        if let Some(ref user_path) = *log_dir_guard {
+            std::path::PathBuf::from(user_path)
+        } else {
+            let app_root = get_app_root();
+            app_root.join("logs")
+        }
+    };
     if !log_dir.exists() {
         return Ok(vec![]);
     }
@@ -61,13 +69,23 @@ pub async fn list_log_files() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn get_logs_directory() -> Result<String, String> {
-    let app_root = get_app_root();
-    let log_dir = app_root.join("logs");
-    Ok(log_dir.to_string_lossy().to_string())
+    let log_dir_guard = LOG_DIR.lock().unwrap();
+    if let Some(ref user_path) = *log_dir_guard {
+        Ok(user_path.clone())
+    } else {
+        let app_root = get_app_root();
+        let log_dir = app_root.join("logs");
+        Ok(log_dir.to_string_lossy().to_string())
+    }
 }
 
 #[tauri::command]
 pub async fn get_app_root_directory() -> Result<String, String> {
     let app_root = get_app_root();
     Ok(app_root.to_string_lossy().to_string())
+}
+#[tauri::command]
+pub fn set_log_directory(path: String) {
+    let mut log_dir = LOG_DIR.lock().unwrap();
+    *log_dir = Some(path);
 }

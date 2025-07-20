@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -25,11 +25,13 @@ import { ActiveSharesTable } from "@/components/active-shares-table";
 import { LogFilesSection } from "@/components/log-files-section";
 import { DebugInfo } from "@/components/debug-info";
 import { sendHeaderPacket, sendPayloadPacket } from "./actions/packet-actions";
-import { invoke } from "@tauri-apps/api/core";
+import { ensureDefaultLogDirectory, setLogDirectory } from "@/lib/log-actions";
+
 
 export default function CommunicationMonitor() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [logSaveDir, setLogSaveDir] = useState<string | null>(null);
 
   // Custom hooks
   const {
@@ -146,10 +148,33 @@ export default function CommunicationMonitor() {
     }
   }, [refreshConnections, resetCounters]);
 
+  // Handler for picking log save directory
+  const handlePickLogDir = async () => {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: 'Select a folder to save logs',
+    });
+    if (selected && typeof selected === 'string') {
+      setLogSaveDir(selected);
+      // Send the selected path to the backend
+      try {
+        await setLogDirectory(selected);
+      } catch (err) {
+        console.error('Failed to set log directory in backend:', err);
+      }
+    }
+  };
+
   const totalPackets = Object.values(data).reduce(
     (sum, packets) => sum + packets.length,
     0
   );
+
+  useEffect(() => {
+    ensureDefaultLogDirectory();
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6">
@@ -162,6 +187,16 @@ export default function CommunicationMonitor() {
           <p className="text-muted-foreground">
             Real-time packet monitoring and analysis
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handlePickLogDir}>
+              Pick Log Save Directory
+            </Button>
+            {logSaveDir && (
+              <span className="text-xs text-muted-foreground truncate max-w-xs" title={logSaveDir}>
+                {logSaveDir}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button

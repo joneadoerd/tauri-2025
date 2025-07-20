@@ -62,19 +62,9 @@ async fn main() {
     // SENSOR_MAP.set(sensor_map.clone()).unwrap();
 
     tauri::Builder::default()
-        // .setup(move |app| {
-        //     let app_handle = app.handle().clone();
-        //     tokio::spawn(async move {
-        //         crate::general::sensor_udp_server::start_udp_server(
-        //             udp_socket_for_task,
-        //             sensor_map_for_task,
-        //             client_addr_map_for_task,
-        //             app_handle,
-        //         )
-        //         .await;
-        //     });
-        //     Ok(())
-        // })
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(Arc::new(std::sync::Mutex::new(SimTimerState {
             handle: None,
@@ -141,6 +131,7 @@ async fn main() {
             storage::commands::list_log_files,
             storage::commands::get_logs_directory,
             storage::commands::get_app_root_directory,
+            storage::commands::set_log_directory,
             simulation,
             get_simulation_data,
             clear_simulation_data,

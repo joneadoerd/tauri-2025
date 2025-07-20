@@ -5,6 +5,11 @@ use std::io::Write;
 use std::path::Path;
 use tokio::sync::mpsc;
 use tracing::{error, info as trace_info};
+use std::sync::Mutex;
+
+// Holds the user-selected log directory, if set
+pub static LOG_DIR: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
 static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = Lazy::new(|| {
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, String, String)>();
 
@@ -21,15 +26,21 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
             Path::new(".").to_path_buf()
         };
 
-        // Create logs directory in Tauri app root
-        let log_dir = app_root.join("logs");
+        // Use user-selected log directory if set, otherwise default to AppData/logs
+        let log_dir = {
+            let log_dir_guard = LOG_DIR.lock().unwrap();
+            if let Some(ref user_path) = *log_dir_guard {
+                std::path::PathBuf::from(user_path)
+            } else {
+                app_root.join("logs")
+            }
+        };
         if !log_dir.exists() {
             if let Err(e) = std::fs::create_dir_all(&log_dir) {
                 error!("Failed to create logs directory at {:?}: {}", log_dir, e);
                 return;
             }
         }
-
         trace_info!("Logs directory created at: {:?}", log_dir);
 
         while let Some((connection_id, json_data, timestamp)) = rx.recv().await {
@@ -70,6 +81,8 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
 
     tx
 });
+
+
 
 pub fn save_packet_fast(connection_id: &str, packet: &impl serde::Serialize) {
     // Validate connection_id

@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
+import { appLocalDataDir, join } from "@tauri-apps/api/path";
+
+import { mkdir } from '@tauri-apps/plugin-fs';
 
 /**
  * Lists all available log files
@@ -81,4 +84,15 @@ export async function exportLogFile(connectionId: string, filePath: string): Pro
     console.error("Failed to export log file:", error)
     throw new Error(`Failed to export log file: ${error}`)
   }
+}
+
+export async function setLogDirectory(path: string) {
+  return invoke("set_log_directory", { path });
+}
+
+export async function ensureDefaultLogDirectory() {
+  const appLocalData = await appLocalDataDir();
+  const logDir = await join(appLocalData, 'logs');
+  await mkdir(logDir, { recursive: true });
+  await setLogDirectory(logDir);
 }
