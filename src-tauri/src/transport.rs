@@ -10,12 +10,27 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use prost::Message;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize,Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ConnectionType {
+    Serial,
+    Udp,
+}
+
+#[derive(Serialize,Deserialize, Clone, Debug, Default)]
 pub struct ConnectionInfo {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub connection_type: Option<ConnectionType>,
+    // Serial fields
+    pub port: Option<String>,
+    pub baud_rate: Option<u32>,
+    // UDP fields
+    pub local_addr: Option<String>,
+    pub remote_addr: Option<String>,
 }
 
 #[async_trait]

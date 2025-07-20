@@ -22,12 +22,11 @@ use crate::transport::convert::lla_to_ned;
 #[tauri::command]
 pub async fn start_connection(
     state: State<'_, Manager>,
-    prefix: String,
+    id: String,
     port: String,
     baud: u32,
     app: AppHandle,
 ) -> Result<(), String> {
-    let id = format!("{}_{}", prefix, Uuid::new_v4());
 
     let mut transport = SerialTransport::new(port, baud);
 
@@ -114,11 +113,10 @@ pub async fn list_connections(state: State<'_, Manager>) -> Result<Vec<Connectio
 #[tauri::command]
 pub async fn start_udp_connection(
     state: State<'_, Manager>,
-    prefix: String,
+    id: String,
     local_addr: String,
     app: AppHandle,
 ) -> Result<(), String> {
-    let id = format!("{}_{}", prefix, uuid::Uuid::new_v4());
     let addr: std::net::SocketAddr = local_addr
         .parse()
         .map_err(|e| format!("Invalid address: {}", e))?;

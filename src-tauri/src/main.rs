@@ -8,6 +8,10 @@ mod storage;
 mod transport;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use once_cell::sync::Lazy;
+
+static STORE_LOADED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
 use general::{
     // commands::{
@@ -25,14 +29,21 @@ use general::{
     //     stop_target_stream,
     // },
 };
+use tauri::{Emitter, Manager as _};
 
-use crate::transport::connection_manager::Manager;
+use crate::{
+    storage::store::{
+        save_manager_state, load_manager_state, save_simulation_state, load_simulation_state, reset_store, restore_all_connections
+    },
+    transport::connection_manager::Manager
+};
 // use crate::general::simulation_streaming::{
 //     map_udp_sensor_target, send_sensor_command, set_target_udp_addr, unmap_udp_sensor_target,
 // };
 use crate::simulation_state::command::{
     reset_simulation_timer, start_simulation_timer, stop_simulation_timer, SimTimerState,
 };
+
 
 #[tokio::main]
 async fn main() {
@@ -64,8 +75,10 @@ async fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(Arc::new(std::sync::Mutex::new(SimTimerState {
             handle: None,
             current_step: 0,
@@ -155,7 +168,47 @@ async fn main() {
             // map_udp_sensor_target,
             // unmap_udp_sensor_target,
             // set_target_udp_addr,
+            save_manager_state,
+            load_manager_state,
+            save_simulation_state,
+            load_simulation_state,
+            reset_store,
         ])
+        .on_page_load(|window, _payload| {
+            let app = window.app_handle().clone();
+            if !STORE_LOADED.load(Ordering::SeqCst) {
+                let window_ = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(_) = load_manager_state(app.clone()).await {
+                        if let Err(e) = restore_all_connections(app.clone()).await {
+                            println!("Failed to restore connections: {e}");
+                        }
+                    }
+                    if let Err(e) = load_simulation_state(app.state::<SimulationDataState>(), app.clone()).await {
+                        println!("Failed to load simulation state: {e}");
+                    }
+                    STORE_LOADED.store(true, Ordering::SeqCst);
+                    window_.emit("store_loaded", true).unwrap_or_else(|e| {
+                        println!("Failed to emit store_loaded event: {e}");
+                    });
+                });
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = tauri::Manager::app_handle(window).clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = save_manager_state(app.state::<Manager>(), app.clone()).await {
+                        println!("Failed to save manager state: {e}");
+                    }
+                    if let Err(e) = save_simulation_state(app.state::<SimulationDataState>(), app.clone()).await {
+                        println!("Failed to save simulation state: {e}");
+                    }
+                });
+                // Do NOT call window.close() here!
+                // Let Tauri handle the close event naturally
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -237,7 +237,10 @@ impl Manager {
             for (share_id, conn_id) in keys {
                 if conn_id == id || share_id == id {
                     if let Some(handle) = share_tasks.remove(&(share_id.clone(), conn_id.clone())) {
-                        println!("[manager] Aborting share task for {} -> {}", share_id, conn_id);
+                        println!(
+                            "[manager] Aborting share task for {} -> {}",
+                            share_id, conn_id
+                        );
                         handle.abort();
                     }
                 }
@@ -255,9 +258,52 @@ impl Manager {
             .read()
             .unwrap()
             .iter()
-            .map(|(id, transport)| ConnectionInfo {
-                id: id.clone(),
-                name: transport.name(),
+            .map(|(id, transport)| {
+               
+                // Serial
+                if let Some(serial) = transport
+                    .as_any()
+                    .downcast_ref::<crate::transport::serial::SerialTransport>()
+                {
+                
+                    // Optionally add more fields as needed
+                    ConnectionInfo {
+                        id: id.clone(),
+                        name: transport.name(),
+                        connection_type: Some(crate::transport::ConnectionType::Serial),
+                        port: Some(serial.port_name.clone()),
+                        baud_rate: Some(serial.baud_rate),
+                        local_addr: None,
+                        remote_addr: None,
+                        
+                    }
+                } else if let Some(udp) = transport
+                    .as_any()
+                    .downcast_ref::<crate::transport::udp::UdpTransport>()
+                {
+                   
+                    ConnectionInfo {
+                        id: id.clone(),
+                        name: transport.name(),
+                        connection_type: Some(crate::transport::ConnectionType::Udp),
+                        port: None,
+                        baud_rate: None,
+                        local_addr: Some(udp.local_addr.to_string()),
+                        remote_addr: udp.remote_addr.map(|a| a.to_string()),
+                      
+                    }
+                } else {
+                    ConnectionInfo {
+                        id: id.clone(),
+                        name: transport.name(),
+                        connection_type: Some(crate::transport::ConnectionType::Serial), // fallback
+                        port: None,
+                        baud_rate: None,
+                        local_addr: None,
+                        remote_addr: None,
+                       
+                    }
+                }
             })
             .collect()
     }
@@ -376,14 +422,11 @@ impl Manager {
             let mut connections = self.connections.write().unwrap();
             connections.remove(id)
         };
-        
+
         // Stop the transport if it exists
         if let Some(transport) = transport_to_stop {
             println!("[manager] Stopping and removing connection {} from map", id);
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                transport.stop(),
-            ).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), transport.stop()).await;
         }
 
         // Also clean up any share tasks for this connection
