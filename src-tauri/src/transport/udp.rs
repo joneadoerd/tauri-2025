@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use prost::Message;
+use tracing::{error, info};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -119,14 +120,14 @@ impl StatableTransport for UdpTransport {
                 tokio::select! {
                     biased;
                     _ = &mut cancel_rx => {
-                        println!("[udp] Cancel signal received for {}", local_addr);
+                        info!("[udp] Cancel signal received for {}", local_addr);
                         break;
                     }
                     res = socket.recv_from(&mut buf) => {
                         match res {
                             Ok((n, addr)) => {
                                 buf.truncate(n);
-                                println!("[udp] Received {} bytes from {}", n, addr);
+                                info!("[udp] Received {} bytes from {}", n, addr);
                                 // Try to decode as Packet (for TargetPacket/TargetPacketList)
                                 if let Ok(packet) = Packet::decode(&buf[..]) {
                                     // If it's a TargetPacket or TargetPacketList, update per-connection target_data
@@ -159,7 +160,7 @@ impl StatableTransport for UdpTransport {
                                 buf.resize(65535, 0); // Ensure buffer is always the right size
                             }
                             Err(e) => {
-                                println!("[udp] Error: {}. Continuing...", e);
+                                error!("[udp] Error: {}. Continuing...", e);
                                 buf.clear();
                                 buf.resize(65535, 0);
                                 continue; // Do not break, just continue
@@ -168,7 +169,7 @@ impl StatableTransport for UdpTransport {
                     }
                 }
             }
-            println!("[udp] Listener stopped for {}", local_addr);
+            info!("[udp] Listener stopped for {}", local_addr);
         });
         Ok(())
     }

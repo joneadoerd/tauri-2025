@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use tracing::debug;
 use tracing::{error, info as trace_info};
 
 use crate::storage::file_logger::log_sent_data;
@@ -153,12 +154,9 @@ impl StatableTransport for SerialTransport {
                                     let packet_size = packet.encoded_len();
                                     if packet_size <= remaining_data.len() {
                                         trace_info!(
-                                            "[{}] Decoded packet, size: {} bytes, fields: {:?}",
+                                            "[{}] Decoded packet, size: {} bytes",
                                             reader_id,
-                                            packet_size,
-                                            serde_json::to_string(&packet).unwrap_or_else(|_| {
-                                                "serialization failed".to_string()
-                                            })
+                                            packet_size
                                         );
 
                                         // Increment packet counter only for successful decodes
@@ -173,7 +171,7 @@ impl StatableTransport for SerialTransport {
 
                                         processed_bytes += packet_size;
 
-                                        trace_info!(
+                                        debug!(
                                             "[{}] Successfully processed packet, moving {} bytes",
                                             reader_id,
                                             packet_size
@@ -241,7 +239,7 @@ impl StatableTransport for SerialTransport {
                                         // No valid packet found, remove one byte and try again
                                         processed_bytes += 1;
                                         if processed_bytes >= buffer.len() {
-                                            trace_info!(
+                                            debug!(
                                                 "[{}] No valid packets found in buffer, clearing {} bytes",
                                                 reader_id,
                                                 buffer.len()
@@ -258,7 +256,7 @@ impl StatableTransport for SerialTransport {
                         // Remove processed bytes from buffer
                         if processed_bytes > 0 {
                             buffer.advance(processed_bytes);
-                            trace_info!(
+                            debug!(
                                 "[{}] Processed {} bytes, remaining buffer: {}",
                                 reader_id,
                                 processed_bytes,

@@ -3,9 +3,9 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use tokio::sync::mpsc;
-use tracing::{error, info as trace_info};
 use std::sync::Mutex;
+use tokio::sync::mpsc;
+use tracing::{debug, error};
 
 // Holds the user-selected log directory, if set
 pub static LOG_DIR: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
@@ -41,7 +41,7 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
                 return;
             }
         }
-        trace_info!("Logs directory created at: {:?}", log_dir);
+        debug!("Logs directory created at: {:?}", log_dir);
 
         while let Some((connection_id, json_data, timestamp)) = rx.recv().await {
             // Validate connection_id is not empty
@@ -64,11 +64,9 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
                     if let Err(e) = writeln!(file, "[{}] {}", timestamp, json_data) {
                         error!("Failed to write to log file {:?}: {}", filename, e);
                     } else {
-                        trace_info!(
+                        debug!(
                             "[{}] [{}] Logged packet to file: {:?}",
-                            connection_id,
-                            timestamp,
-                            filename
+                            connection_id, timestamp, filename
                         );
                     }
                 }
@@ -81,8 +79,6 @@ static LOGGING_CHANNEL: Lazy<mpsc::UnboundedSender<(String, String, String)>> = 
 
     tx
 });
-
-
 
 pub fn save_packet_fast(connection_id: &str, packet: &impl serde::Serialize) {
     // Validate connection_id
@@ -115,7 +111,7 @@ pub fn save_packet_fast(connection_id: &str, packet: &impl serde::Serialize) {
             connection_id, e
         );
     } else {
-        trace_info!("[{}] Packet sent to logging channel", connection_id);
+        debug!("[{}] Packet sent to logging channel", connection_id);
     }
 }
 
