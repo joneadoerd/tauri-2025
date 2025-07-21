@@ -71,7 +71,7 @@ export function ConnectionForm({
     }
 
     try {
-      const id = generateShortId('serial');
+      const id = generateShortId('serial',form.port);
       await onConnect(id, form.port, baudRate, "Header")
     } catch (error) {
       console.error("Failed to connect:", error)

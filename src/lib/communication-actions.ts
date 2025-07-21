@@ -58,7 +58,7 @@ export async function listConnections(): Promise<Connection[]> {
  */
 export async function startSerialConnection(params: SerialConnectionParams): Promise<string> {
   try {
-    const id = params.id || generateShortId('serial');
+    const id = params.id || generateShortId('serial', params.port);
     return await invoke<string>('start_connection', {
       id,
       port: params.port,
@@ -78,7 +78,7 @@ export async function startSerialConnection(params: SerialConnectionParams): Pro
  */
 export async function startUdpConnection(params: UdpConnectionParams): Promise<string> {
   try {
-    const id = params.id || generateShortId('udp');
+    const id = params.id || generateShortId('udp', params.localAddr);
     return await invoke<string>('start_udp_connection', {
       id,
       localAddr: params.localAddr,

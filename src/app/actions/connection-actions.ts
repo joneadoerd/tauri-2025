@@ -27,7 +27,7 @@ import { generateShortId } from '@/lib/utils';
  */
 export async function connectToSerial(params: SerialConnectionParams): Promise<string> {
   try {
-    const id = params.id || generateShortId('serial');
+    const id = params.id || generateShortId('serial', params.port);
     const connectionId = await startSerialConnection({ ...params, id });
     console.log(`Serial connection established: ${connectionId}`)
     return connectionId
@@ -53,7 +53,7 @@ export async function connectToSerial(params: SerialConnectionParams): Promise<s
  */
 export async function connectToUdp(params: UdpConnectionParams): Promise<string> {
   try {
-    const id = params.id || generateShortId('udp');
+    const id = params.id || generateShortId('udp', params.localAddr);
     const connectionId = await startUdpConnection({ ...params, id });
     console.log(`UDP connection established: ${connectionId}`)
     return connectionId
@@ -119,7 +119,7 @@ export async function initializeComPorts(): Promise<string[]> {
   try {
     // Initialize COM3
     const com3Id = await connectToSerial({
-      id: generateShortId('serial'),
+      id: generateShortId('serial', 'COM3'),
       port: "COM3",
       baud: 115200,
       packetType: "Header",
@@ -128,7 +128,7 @@ export async function initializeComPorts(): Promise<string[]> {
 
     // Initialize COM6
     const com6Id = await connectToSerial({
-      id: generateShortId('serial'),
+      id: generateShortId('serial', 'COM6'),
       port: "COM6",
       baud: 115200,
       packetType: "Header",
@@ -172,8 +172,8 @@ export async function setupUdpPair(addressA: string, addressB: string): Promise<
 
   try {
     // Start both UDP connections
-    connAId = await connectToUdp({ id: generateShortId('udp'), localAddr: addressA });
-    connBId = await connectToUdp({ id: generateShortId('udp'), localAddr: addressB });
+    connAId = await connectToUdp({ id: generateShortId('udp', addressA), localAddr: addressA });
+    connBId = await connectToUdp({ id: generateShortId('udp', addressB), localAddr: addressB });
 
     // Configure bidirectional communication
     await setUdpRemoteAddress(connAId, addressB)

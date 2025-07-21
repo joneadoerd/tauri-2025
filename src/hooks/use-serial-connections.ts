@@ -74,7 +74,7 @@ export function useSerialConnections() {
    */
   const connect = useCallback(
     async (_prefix: string, port: string, baud: number, packetType: string) => {
-      const id = generateShortId('serial');
+      const id = generateShortId('serial', port);
       const params: SerialConnectionParams = { id, port, baud, packetType };
       await startSerialConnection(params);
       await refreshConnections();

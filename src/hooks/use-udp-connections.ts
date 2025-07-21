@@ -42,7 +42,7 @@ export function useUdpConnections() {
 
   const startUdpConnection = useCallback(async (localAddr: string) => {
     try {
-      const id = generateShortId('udp');
+      const id = generateShortId('udp', localAddr);
       await invoke("start_udp_connection", {
         id,
         localAddr,

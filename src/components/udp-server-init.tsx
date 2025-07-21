@@ -62,8 +62,8 @@ export function UdpServerInit({ onRefreshConnections, className }: UdpServerInit
     try {
       // Start both UDP servers
       await Promise.all([
-        startUdpConnection({ id: generateShortId('udp'), localAddr: initA }),
-        startUdpConnection({ id: generateShortId('udp'), localAddr: initB }),
+        startUdpConnection({ id: generateShortId('udp',initA), localAddr: initA }),
+        startUdpConnection({ id: generateShortId('udp',initB), localAddr: initB }),
       ])
 
       // Refresh connections to get the new connection IDs
