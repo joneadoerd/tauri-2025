@@ -1,4 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::general::simulation_commands::SimulationDataState;
 use crate::packet::TargetPacket;
@@ -27,7 +29,6 @@ pub async fn start_connection(
     baud: u32,
     app: AppHandle,
 ) -> Result<(), String> {
-
     let mut transport = SerialTransport::new(port, baud);
 
     transport
@@ -175,7 +176,7 @@ pub async fn start_simulation_udp_streaming(
     origin_lon: f64,
     origin_alt: f64,
 ) -> Result<String, String> {
-    use crate::packet::{TargetPacket, Lla, Ned};
+    use crate::packet::{Lla, Ned, TargetPacket};
     use crate::transport::convert::lla_to_ned;
     use std::net::SocketAddr;
     let local_addr: SocketAddr = local_addr
@@ -212,23 +213,32 @@ pub async fn start_simulation_udp_streaming(
                     alt: state.alt,
                 };
                 let ned = lla_to_ned(&origin, &lla);
-                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
-                    let dt = state.time.unwrap_or(0.0) - prev_t;
-                    if dt > 0.0 {
-                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                let (vn, ve, vd) =
+                    if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                        let dt = state.time.unwrap_or(0.0) - prev_t;
+                        if dt > 0.0 {
+                            (
+                                (ned.north - prev.north) / dt,
+                                (ned.east - prev.east) / dt,
+                                (ned.down - prev.down) / dt,
+                            )
+                        } else {
+                            (0.0, 0.0, 0.0)
+                        }
                     } else {
                         (0.0, 0.0, 0.0)
-                    }
-                } else {
-                    (0.0, 0.0, 0.0)
-                };
+                    };
                 prev_ned = Some(ned.clone());
                 prev_time = state.time;
                 packets.push(TargetPacket {
                     target_id: result.target_id,
                     lla: Some(lla),
                     ned: Some(ned.clone()),
-                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
+                    ned_velocity: Some(Ned {
+                        north: vn,
+                        east: ve,
+                        down: vd,
+                    }),
                     time: state.time.unwrap_or(0.0),
                     origin: Some(origin.clone()),
                 });
@@ -294,23 +304,32 @@ pub async fn share_target_to_udp_server(
                     alt: state.alt,
                 };
                 let ned = lla_to_ned(&origin, &lla);
-                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
-                    let dt = state.time.unwrap_or(0.0) - prev_t;
-                    if dt > 0.0 {
-                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                let (vn, ve, vd) =
+                    if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                        let dt = state.time.unwrap_or(0.0) - prev_t;
+                        if dt > 0.0 {
+                            (
+                                (ned.north - prev.north) / dt,
+                                (ned.east - prev.east) / dt,
+                                (ned.down - prev.down) / dt,
+                            )
+                        } else {
+                            (0.0, 0.0, 0.0)
+                        }
                     } else {
                         (0.0, 0.0, 0.0)
-                    }
-                } else {
-                    (0.0, 0.0, 0.0)
-                };
+                    };
                 prev_ned = Some(ned.clone());
                 prev_time = state.time;
                 packets.push(TargetPacket {
                     target_id: result.target_id,
                     lla: Some(lla),
                     ned: Some(ned.clone()),
-                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
+                    ned_velocity: Some(Ned {
+                        north: vn,
+                        east: ve,
+                        down: vd,
+                    }),
                     time: state.time.unwrap_or(0.0),
                     origin: Some(origin.clone()),
                 });
@@ -362,23 +381,32 @@ pub async fn share_target_to_connection(
                     alt: state.alt,
                 };
                 let ned = lla_to_ned(&origin, &lla);
-                let (vn, ve, vd) = if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
-                    let dt = state.time.unwrap_or(0.0) - prev_t;
-                    if dt > 0.0 {
-                        ((ned.north - prev.north) / dt, (ned.east - prev.east) / dt, (ned.down - prev.down) / dt)
+                let (vn, ve, vd) =
+                    if let (Some(prev), Some(prev_t)) = (prev_ned.as_ref(), prev_time) {
+                        let dt = state.time.unwrap_or(0.0) - prev_t;
+                        if dt > 0.0 {
+                            (
+                                (ned.north - prev.north) / dt,
+                                (ned.east - prev.east) / dt,
+                                (ned.down - prev.down) / dt,
+                            )
+                        } else {
+                            (0.0, 0.0, 0.0)
+                        }
                     } else {
                         (0.0, 0.0, 0.0)
-                    }
-                } else {
-                    (0.0, 0.0, 0.0)
-                };
+                    };
                 prev_ned = Some(ned.clone());
                 prev_time = state.time;
                 packets.push(TargetPacket {
                     target_id: result.target_id,
                     lla: Some(lla),
                     ned: Some(ned.clone()),
-                    ned_velocity: Some(Ned { north: vn, east: ve, down: vd }),
+                    ned_velocity: Some(Ned {
+                        north: vn,
+                        east: ve,
+                        down: vd,
+                    }),
                     time: state.time.unwrap_or(0.0),
                     origin: Some(origin.clone()),
                 });
@@ -478,6 +506,23 @@ pub async fn get_total_udp_targets(state: State<'_, Manager>) -> Result<u32, Str
     Ok(all_target_ids.len() as u32)
 }
 
+#[cfg(target_os = "linux")]
+fn set_realtime_priority() {
+    use libc::{sched_param, sched_setscheduler, SCHED_FIFO};
+    unsafe {
+        let param = sched_param { sched_priority: 99 };
+        sched_setscheduler(0, SCHED_FIFO, &param);
+    }
+}
+
+#[cfg(windows)]
+fn set_high_timer_resolution() {
+    use winapi::um::timeapi;
+    unsafe {
+        timeapi::timeBeginPeriod(1); // Set 1ms resolution
+    }
+}
+
 #[tauri::command]
 pub async fn share_udp_target_to_connection(
     state: State<'_, Manager>,
@@ -492,39 +537,126 @@ pub async fn share_udp_target_to_connection(
         target_id,
         Uuid::new_v4()
     );
+
+    // Set up OS-specific optimizations
+    #[cfg(target_os = "linux")]
+    set_realtime_priority();
+    #[cfg(windows)]
+    set_high_timer_resolution();
+
     let manager_arc = state.inner().clone();
     let udp_conn_id = udp_connection_id.clone();
     let dest_conn_id = dest_connection_id.clone();
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = running.clone();
+
     let handle = tokio::spawn(async move {
-        loop {
-            let connections = manager_arc.connections.read().unwrap().clone();
-            if let Some(conn) = connections.get(&udp_conn_id) {
-                if let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() {
-                    let td = udp.target_data.lock().await;
-                    if let Some(tp) = td.get(&target_id) {
-                        let mut buf = Vec::new();
-                        let data = Packet {
-                            kind: Some(Kind::TargetPacket(tp.clone())),
-                        };
-                        if let Ok(()) = data.encode(&mut buf) {
-                            let _ = manager_arc.send_to(&dest_conn_id, buf).await;
-                        }
-                    }
-                    drop(td);
-                    tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
-                    continue;
+        let interval = Duration::from_millis(interval_ms);
+        let mut next_time = Instant::now() + interval;
+        let mut last_send_time = Instant::now();
+
+        while running_clone.load(Ordering::Relaxed) {
+            // PRECISION TIMING CONTROL
+            let now = Instant::now();
+            if now < next_time {
+                let sleep_time = next_time - now;
+                if sleep_time > Duration::from_micros(2000) {
+                    tokio::time::sleep(sleep_time - Duration::from_micros(1000)).await;
+                }
+                while Instant::now() < next_time {
+                    std::hint::spin_loop();
                 }
             }
-            drop(connections);
-            // If not found or not UDP, sleep to avoid busy loop
-            tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
+
+            // DATA SHARING LOGIC (FIXED)
+            let connections = match manager_arc.connections.read() {
+                Ok(lock) => lock.clone(),
+                Err(_) => {
+                    tracing::error!("Failed to acquire connections lock");
+                    continue;
+                }
+            };
+
+            // Get source UDP connection
+            let Some(conn) = connections.get(&udp_conn_id) else {
+                tracing::warn!("Source UDP connection not found: {}", udp_conn_id);
+                next_time += interval;
+                continue;
+            };
+
+            // Get destination connection
+            let Some(_dest_conn) = connections.get(&dest_conn_id) else {
+                tracing::warn!("Destination connection not found: {}", dest_conn_id);
+                next_time += interval;
+                continue;
+            };
+
+            // Downcast to UDP transport
+            let Some(udp) = conn.as_any().downcast_ref::<UdpTransport>() else {
+                tracing::warn!("Source is not a UDP transport");
+                next_time += interval;
+                continue;
+            };
+
+            // Lock and get target data
+            let td = udp.target_data.lock().await;
+            let Some(tp) = td.get(&target_id) else {
+                tracing::warn!("Target data not found for ID: {}", target_id);
+                next_time += interval;
+                continue;
+            };
+
+            // Encode and send packet
+            let mut buf = Vec::with_capacity(128);
+            let data = Packet {
+                kind: Some(Kind::TargetPacket(tp.clone())),
+            };
+
+            if let Err(e) = data.encode(&mut buf) {
+                tracing::error!("Failed to encode packet: {}", e);
+                next_time += interval;
+                continue;
+            }
+
+            if let Err(e) = manager_arc.send_to(&dest_conn_id, buf).await {
+                tracing::error!("Failed to send packet: {}", e);
+            }
+
+            // Log timing statistics
+            let now_send = Instant::now();
+            let actual_interval = now_send.duration_since(last_send_time);
+            tracing::info!(
+                "UDP Share - Target: {:.2}ms, Actual: {:.2}ms, Drift: {:.3}ms",
+                interval.as_secs_f64() * 1000.0,
+                actual_interval.as_secs_f64() * 1000.0,
+                (actual_interval.as_secs_f64() - interval.as_secs_f64()) * 1000.0
+            );
+            last_send_time = now_send;
+
+            // Schedule next iteration with drift compensation
+            next_time += interval;
+            if Instant::now() - next_time > interval * 2 {
+                next_time = Instant::now() + interval;
+            }
+        }
+
+        // Cleanup
+        #[cfg(windows)]
+        unsafe {
+            winapi::um::timeapi::timeEndPeriod(1);
         }
     });
+
+    // Store just the JoinHandle in share_tasks
     let mut share_tasks = state.share_tasks.lock().await;
     share_tasks.insert((id.clone(), dest_connection_id.clone()), handle);
+
+    // Store the running flag separately if needed
+    let mut running_flags = state.running_flags.lock().await;
+    running_flags.insert((id.clone(), dest_connection_id), running);
+
     Ok(id)
 }
-
 #[tauri::command]
 pub async fn get_packet_statistics(
     state: State<'_, Manager>,

@@ -1,5 +1,6 @@
 use crate::transport::{ConnectionInfo, Transport};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::time;
 
@@ -12,6 +13,7 @@ pub struct Manager {
         Arc<tokio::sync::Mutex<HashMap<(String, String), tokio::task::JoinHandle<()>>>>,
     pub simulation_stream_tasks:
         Arc<tokio::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    pub running_flags: Arc<tokio::sync::Mutex<HashMap<(String, String), Arc<AtomicBool>>>>,
 }
 
 impl Manager {
@@ -21,6 +23,7 @@ impl Manager {
             active_shares: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             share_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             simulation_stream_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            running_flags: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -130,6 +133,9 @@ impl Manager {
 
     /// Stop sharing by aborting the share task and dropping the sender for a specific from/to pair
     pub async fn stop_share(&self, from_id: &str, to_id: &str) -> Result<(), String> {
+        if let Some(flag) = self.running_flags.lock().await.remove(&(from_id.to_string(), to_id.to_string())) {
+            flag.store(false, Ordering::Relaxed);
+        }
         let mut share_tasks = self.share_tasks.lock().await;
         if let Some(handle) = share_tasks.remove(&(from_id.to_string(), to_id.to_string())) {
             handle.abort();
@@ -259,13 +265,11 @@ impl Manager {
             .unwrap()
             .iter()
             .map(|(id, transport)| {
-               
                 // Serial
                 if let Some(serial) = transport
                     .as_any()
                     .downcast_ref::<crate::transport::serial::SerialTransport>()
                 {
-                
                     // Optionally add more fields as needed
                     ConnectionInfo {
                         id: id.clone(),
@@ -275,13 +279,11 @@ impl Manager {
                         baud_rate: Some(serial.baud_rate),
                         local_addr: None,
                         remote_addr: None,
-                        
                     }
                 } else if let Some(udp) = transport
                     .as_any()
                     .downcast_ref::<crate::transport::udp::UdpTransport>()
                 {
-                   
                     ConnectionInfo {
                         id: id.clone(),
                         name: transport.name(),
@@ -290,7 +292,6 @@ impl Manager {
                         baud_rate: None,
                         local_addr: Some(udp.local_addr.to_string()),
                         remote_addr: udp.remote_addr.map(|a| a.to_string()),
-                      
                     }
                 } else {
                     ConnectionInfo {
@@ -301,7 +302,6 @@ impl Manager {
                         baud_rate: None,
                         local_addr: None,
                         remote_addr: None,
-                       
                     }
                 }
             })
