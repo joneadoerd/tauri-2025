@@ -229,7 +229,7 @@ export function PacketDisplay({ data, packetCounts, onClearAll, onClearCurrent, 
                     .reverse()
                     .map(({ packet, timestamp, id: packetId }, index) => (
                       <div
-                        key={packetId || `packet-${index}`}
+                        key={packetId ? `${packetId}-${index}` : `packet-${index}-${timestamp}`}
                         className="p-4 border rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors"
                       >
                         {/* Packet Header */}
