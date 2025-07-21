@@ -13,15 +13,10 @@ import type { BaseComponentProps } from "@/types"
  * Props for SimulationStreaming component
  */
 interface SimulationStreamingProps extends BaseComponentProps {
-  /** Array of active simulation stream IDs */
   activeSimulationStreams: string[]
-  /** Current simulation UDP connection ID */
   simUdpConnId: string | null
-  /** Current simulation UDP error message */
   simUdpError: string | null
-  /** Function to start simulation UDP streaming */
-  onStartSimulationUdp: (localAddr: string, remoteAddr: string, intervalMs: number, originLat: number, originLon: number, originAlt: number) => Promise<string>
-  /** Function to stop simulation UDP streaming */
+  onStartSimulationUdp: (localAddr: string, remoteAddr: string, intervalMs: number) => Promise<string>
   onStopSimulationUdp: () => Promise<void>
 }
 
@@ -60,9 +55,6 @@ export function SimulationStreaming({
   const [simInterval, setSimInterval] = useState(1000)
   const [isStartingSimUdp, setIsStartingSimUdp] = useState(false)
   const [isStoppingSimUdp, setIsStoppingSimUdp] = useState(false)
-  const [originLat, setOriginLat] = useState(0.0);
-  const [originLon, setOriginLon] = useState(0.0);
-  const [originAlt, setOriginAlt] = useState(0.0);
 
   /**
    * Validates form inputs
@@ -77,7 +69,7 @@ export function SimulationStreaming({
 
     setIsStartingSimUdp(true)
     try {
-      await onStartSimulationUdp(simLocalAddr, simRemoteAddr, simInterval, originLat, originLon, originAlt);
+      await onStartSimulationUdp(simLocalAddr, simRemoteAddr, simInterval);
     } catch (error) {
       console.error("Failed to start simulation UDP:", error)
     } finally {
@@ -156,42 +148,6 @@ export function SimulationStreaming({
               className={!isValidInterval(simInterval) ? "border-red-500" : ""}
             />
             {!isValidInterval(simInterval) && <span className="text-xs text-red-500 mt-1">Must be 1-60000ms</span>}
-          </div>
-
-          {/* Origin Latitude */}
-          <div className="flex flex-col">
-            <Label htmlFor="origin-lat">Origin Latitude</Label>
-            <Input
-              id="origin-lat"
-              type="number"
-              value={originLat}
-              onChange={(e) => setOriginLat(Number(e.target.value))}
-              step="any"
-            />
-          </div>
-
-          {/* Origin Longitude */}
-          <div className="flex flex-col">
-            <Label htmlFor="origin-lon">Origin Longitude</Label>
-            <Input
-              id="origin-lon"
-              type="number"
-              value={originLon}
-              onChange={(e) => setOriginLon(Number(e.target.value))}
-              step="any"
-            />
-          </div>
-
-          {/* Origin Altitude */}
-          <div className="flex flex-col">
-            <Label htmlFor="origin-alt">Origin Altitude (m)</Label>
-            <Input
-              id="origin-alt"
-              type="number"
-              value={originAlt}
-              onChange={(e) => setOriginAlt(Number(e.target.value))}
-              step="any"
-            />
           </div>
 
           {/* Start Button */}

@@ -232,39 +232,17 @@ pub struct SerialPacketEvent {
 }
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Lla {
-    #[prost(double, tag = "1")]
-    pub lat: f64,
-    #[prost(double, tag = "2")]
-    pub lon: f64,
-    #[prost(double, tag = "3")]
-    pub alt: f64,
-}
-#[derive(::serde::Serialize, ::serde::Deserialize)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Ned {
-    #[prost(double, tag = "1")]
-    pub north: f64,
-    #[prost(double, tag = "2")]
-    pub east: f64,
-    #[prost(double, tag = "3")]
-    pub down: f64,
-}
-#[derive(::serde::Serialize, ::serde::Deserialize)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TargetPacket {
     #[prost(uint32, tag = "1")]
     pub target_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub lla: ::core::option::Option<Lla>,
-    #[prost(message, optional, tag = "3")]
-    pub ned: ::core::option::Option<Ned>,
-    #[prost(message, optional, tag = "4")]
-    pub ned_velocity: ::core::option::Option<Ned>,
+    #[prost(double, tag = "2")]
+    pub lat: f64,
+    #[prost(double, tag = "3")]
+    pub lon: f64,
+    #[prost(double, tag = "4")]
+    pub alt: f64,
     #[prost(double, tag = "5")]
     pub time: f64,
-    #[prost(message, optional, tag = "6")]
-    pub origin: ::core::option::Option<Lla>,
 }
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]

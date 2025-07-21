@@ -4,7 +4,6 @@ pub mod commands;
 pub mod connection_manager;
 pub mod serial;
 pub mod udp;
-pub mod convert;
 use std::any::Any;
 use std::sync::Arc;
 
