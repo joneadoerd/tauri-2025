@@ -18,7 +18,7 @@ const EXAMPLE_PACKET_DATA = {
     encoding: "utf8",
   },
 } as const
-
+const DELIMITER = 0xAABBCCDD // Example delimiter, adjust as needed
 /**
  * Sends a header packet to a connection
  * @param connectionId - Target connection ID
@@ -30,7 +30,9 @@ export async function sendHeaderPacket(connectionId: string): Promise<void> {
       kind: {
         Header: EXAMPLE_PACKET_DATA.Header,
       },
-    }
+      delimiter: DELIMITER,
+    } 
+
     await sendPacket(connectionId, packet)
   } catch (error) {
     console.error(`Failed to send header packet to ${connectionId}:`, error)
@@ -56,6 +58,7 @@ export async function sendPayloadPacket(connectionId: string): Promise<void> {
           data: payloadData,
         },
       },
+      delimiter: DELIMITER,
     }
 
     await sendPacket(connectionId, packet)

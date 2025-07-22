@@ -2,6 +2,9 @@
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Packet {
+    /// Delimiter to indicate end of packet
+    #[prost(fixed32, tag = "12")]
+    pub delimiter: u32,
     #[prost(oneof = "packet::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub kind: ::core::option::Option<packet::Kind>,
 }

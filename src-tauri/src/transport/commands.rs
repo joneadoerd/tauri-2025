@@ -10,14 +10,14 @@ use crate::transport::connection_manager::Manager;
 
 use crate::transport::serial::SerialTransport;
 use crate::transport::udp::UdpTransport;
-use crate::transport::{ConnectionInfo, StatableTransport};
+use crate::transport::{ConnectionInfo, StatableTransport, DELIMITER};
 
 use prost::Message;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use tauri::{AppHandle, Emitter, State};
 use tokio::time;
 use uuid::Uuid;
-use std::net::SocketAddr;
 
 #[tauri::command]
 pub async fn start_connection(
@@ -311,7 +311,9 @@ pub async fn share_target_to_connection(
             let mut buf = Vec::new();
             let data = Packet {
                 kind: Some(Kind::TargetPacket(packet)),
+                delimiter: DELIMITER,
             };
+
             if let Ok(()) = data.encode(&mut buf) {
                 let _ = manager_arc.send_to(&conn_id, buf).await;
             }
@@ -486,6 +488,7 @@ pub async fn share_udp_target_to_connection(
             let mut buf = Vec::with_capacity(128);
             let data = Packet {
                 kind: Some(Kind::TargetPacket(tp.clone())),
+                delimiter: DELIMITER,
             };
 
             if let Err(e) = data.encode(&mut buf) {

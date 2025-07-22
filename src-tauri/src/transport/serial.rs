@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use prost::bytes::Buf;
 use prost::bytes::BytesMut;
 use prost::Message;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,11 +7,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use tracing::debug;
 use tracing::{error, info as trace_info};
 
 use crate::storage::file_logger::log_sent_data;
-use crate::transport::{StatableTransport, Transport};
+use crate::transport::{StatableTransport, Transport, DELIMITER, DELIMITER_LEN};
 
 #[derive(Clone)]
 pub struct SerialTransport {
@@ -113,7 +111,7 @@ impl StatableTransport for SerialTransport {
 
         let task = tokio::spawn(async move {
             let mut buffer = BytesMut::with_capacity(4096);
-            const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB max buffer size
+            // const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB max buffer size
 
             trace_info!("[{}] Starting serial reader task", reader_id);
 
@@ -132,139 +130,53 @@ impl StatableTransport for SerialTransport {
                             buffer.len()
                         );
 
-                        // Prevent buffer overflow
-                        if buffer.len() > MAX_BUFFER_SIZE {
-                            error!(
-                                "[serialcom] Buffer overflow on {}, clearing buffer",
-                                reader_id
-                            );
-                            buffer.clear();
-                            continue;
-                        }
+                        // Process complete packets (those ending with delimiter)
 
-                        // Process all complete packets in buffer
-                        let mut processed_bytes = 0;
-                        while buffer.len() > processed_bytes {
-                            let remaining_data = &buffer[processed_bytes..];
+                        while buffer.len() >= DELIMITER_LEN {
+                            // Check if last 4 bytes are the delimiter
+                            let potential_delimiter = &buffer[buffer.len() - DELIMITER_LEN..];
 
-                            // Try to decode as protobuf message
-                            match Message::decode(remaining_data) {
-                                Ok(packet) => {
-                                    let packet: F = packet;
-                                    let packet_size = packet.encoded_len();
-                                    if packet_size <= remaining_data.len() {
+                            if potential_delimiter == DELIMITER.to_le_bytes() {
+                                // Extract packet (excluding delimiter)
+                                let packet_len = buffer.len() - DELIMITER_LEN;
+                                let packet_data = &buffer[..];
+
+                                match Message::decode(&*buffer) {
+                                    Ok(packet) => {
+                                        let packet: F = packet;
                                         trace_info!(
                                             "[{}] Decoded packet, size: {} bytes",
                                             reader_id,
-                                            packet_size
+                                            packet_len
                                         );
 
-                                        // Increment packet counter only for successful decodes
                                         packet_received_count.fetch_add(1, Ordering::Relaxed);
-
                                         on_packet(reader_id.clone(), packet);
 
-                                        // Store the latest raw data for sharing
+                                        // Store raw data
                                         let mut ld = last_data.lock().await;
-                                        *ld = Some(remaining_data[..packet_size].to_vec());
+                                        *ld = Some(packet_data.to_vec());
                                         notify.notify_waiters();
 
-                                        processed_bytes += packet_size;
-
-                                        debug!(
-                                            "[{}] Successfully processed packet, moving {} bytes",
-                                            reader_id,
-                                            packet_size
-                                        );
-                                    } else {
-                                        // Incomplete packet, wait for more data
-                                        trace_info!(
-                                            "[{}] Incomplete packet (size: {}, available: {}), waiting for more data",
-                                            reader_id,
-                                            packet_size,
-                                            remaining_data.len()
-                                        );
+                                        // Clear the buffer as we've processed this packet
+                                        buffer.clear();
+                                        break; // Exit processing loop to get new data
+                                    }
+                                    Err(e) => {
+                                        error!("[{}] Protobuf decode error: {:?}", reader_id, e);
+                                        // Remove the delimiter and try to find next one
+                                        buffer.truncate(packet_len);
                                         break;
                                     }
                                 }
-                                Err(e) => {
-                                    trace_info!(
-                                        "[{}] Failed to decode packet at offset {}, error: {:?}",
-                                        reader_id,
-                                        processed_bytes,
-                                        e
-                                    );
-
-                                    // If we can't decode, try to find a valid packet boundary
-                                    // Look for potential packet start by trying different offsets
-                                    let mut found_packet = false;
-                                    let search_limit = std::cmp::min(remaining_data.len(), 100);
-
-                                    for offset in 1..search_limit {
-                                        if let Ok(packet) =
-                                            Message::decode(&remaining_data[offset..])
-                                        {
-                                            let packet: F = packet;
-                                            let packet_size = packet.encoded_len();
-                                            if offset + packet_size <= remaining_data.len() {
-                                                trace_info!(
-                                                    "[{}] Found packet at offset {}, size: {} bytes",
-                                                    reader_id,
-                                                    offset,
-                                                    packet_size
-                                                );
-
-                                                // Increment packet counter for successful decodes
-                                                packet_received_count
-                                                    .fetch_add(1, Ordering::Relaxed);
-
-                                                on_packet(reader_id.clone(), packet);
-
-                                                // Store the latest raw data for sharing
-                                                let mut ld = last_data.lock().await;
-                                                *ld = Some(
-                                                    remaining_data[offset..offset + packet_size]
-                                                        .to_vec(),
-                                                );
-                                                notify.notify_waiters();
-
-                                                processed_bytes += offset + packet_size;
-                                                found_packet = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if !found_packet {
-                                        // No valid packet found, remove one byte and try again
-                                        processed_bytes += 1;
-                                        if processed_bytes >= buffer.len() {
-                                            debug!(
-                                                "[{}] No valid packets found in buffer, clearing {} bytes",
-                                                reader_id,
-                                                buffer.len()
-                                            );
-                                            // No more data to process, clear the buffer
-                                            buffer.clear();
-                                            break;
-                                        }
-                                    }
-                                }
+                            } else {
+                                // No delimiter found yet, wait for more data
+                                break;
                             }
                         }
-
-                        // Remove processed bytes from buffer
-                        if processed_bytes > 0 {
-                            buffer.advance(processed_bytes);
-                            debug!(
-                                "[{}] Processed {} bytes, remaining buffer: {}",
-                                reader_id,
-                                processed_bytes,
-                                buffer.len()
-                            );
-                        }
                     }
-                    Ok(_) => continue,
+                    Ok(_) => continue, // No data received
+
                     Err(e) => {
                         error!("[serialcom] Read error on {}: {}", reader_id, e);
                         break;

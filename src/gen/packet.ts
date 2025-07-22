@@ -17,7 +17,11 @@ export interface Packet {
   flags?: PacketFlags | undefined;
   version?: PacketVersion | undefined;
   target_packet?: TargetPacket | undefined;
-  target_packet_list?: TargetPacketList | undefined;
+  target_packet_list?:
+    | TargetPacketList
+    | undefined;
+  /** Delimiter to indicate end of packet */
+  delimiter: number;
 }
 
 export interface PacketHeader {
@@ -160,6 +164,7 @@ function createBasePacket(): Packet {
     version: undefined,
     target_packet: undefined,
     target_packet_list: undefined,
+    delimiter: 0,
   };
 }
 
@@ -197,6 +202,9 @@ export const Packet: MessageFns<Packet> = {
     }
     if (message.target_packet_list !== undefined) {
       TargetPacketList.encode(message.target_packet_list, writer.uint32(90).fork()).join();
+    }
+    if (message.delimiter !== 0) {
+      writer.uint32(101).fixed32(message.delimiter);
     }
     return writer;
   },
@@ -296,6 +304,14 @@ export const Packet: MessageFns<Packet> = {
           message.target_packet_list = TargetPacketList.decode(reader, reader.uint32());
           continue;
         }
+        case 12: {
+          if (tag !== 101) {
+            break;
+          }
+
+          message.delimiter = reader.fixed32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -320,6 +336,7 @@ export const Packet: MessageFns<Packet> = {
       target_packet_list: isSet(object.target_packet_list)
         ? TargetPacketList.fromJSON(object.target_packet_list)
         : undefined,
+      delimiter: isSet(object.delimiter) ? globalThis.Number(object.delimiter) : 0,
     };
   },
 
@@ -357,6 +374,9 @@ export const Packet: MessageFns<Packet> = {
     }
     if (message.target_packet_list !== undefined) {
       obj.target_packet_list = TargetPacketList.toJSON(message.target_packet_list);
+    }
+    if (message.delimiter !== 0) {
+      obj.delimiter = Math.round(message.delimiter);
     }
     return obj;
   },
@@ -399,6 +419,7 @@ export const Packet: MessageFns<Packet> = {
     message.target_packet_list = (object.target_packet_list !== undefined && object.target_packet_list !== null)
       ? TargetPacketList.fromPartial(object.target_packet_list)
       : undefined;
+    message.delimiter = object.delimiter ?? 0;
     return message;
   },
 };

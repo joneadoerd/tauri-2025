@@ -11,14 +11,18 @@ use async_trait::async_trait;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize,Deserialize, Clone, Debug)]
+// The 4-byte delimiter value that should appear at the end of each packet
+pub const DELIMITER: u32 = 0xDEADBEEF;
+pub const DELIMITER_LEN: usize = 4;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionType {
     Serial,
     Udp,
 }
 
-#[derive(Serialize,Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ConnectionInfo {
     pub id: String,
     pub name: String,

@@ -1,4 +1,4 @@
-use crate::transport::{ConnectionInfo, Transport};
+use crate::transport::{ConnectionInfo, Transport, DELIMITER};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -133,7 +133,12 @@ impl Manager {
 
     /// Stop sharing by aborting the share task and dropping the sender for a specific from/to pair
     pub async fn stop_share(&self, from_id: &str, to_id: &str) -> Result<(), String> {
-        if let Some(flag) = self.running_flags.lock().await.remove(&(from_id.to_string(), to_id.to_string())) {
+        if let Some(flag) = self
+            .running_flags
+            .lock()
+            .await
+            .remove(&(from_id.to_string(), to_id.to_string()))
+        {
             flag.store(false, Ordering::Relaxed);
         }
         let mut share_tasks = self.share_tasks.lock().await;
@@ -391,6 +396,7 @@ impl Manager {
                         kind: Some(Kind::TargetPacketList(TargetPacketList {
                             packets: step_packets,
                         })),
+                        delimiter: DELIMITER,
                     };
                     if let Ok(()) = data.encode(&mut buf) {
                         let _ = transport.send(buf).await;

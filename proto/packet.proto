@@ -14,7 +14,8 @@ message Packet {
     PacketVersion version = 9;
     TargetPacket target_packet = 10;
     TargetPacketList target_packet_list = 11;
-  }
+  };
+  fixed32 delimiter = 12; // Delimiter to indicate end of packet
 }
 message PacketHeader {
   uint32 id = 1;
